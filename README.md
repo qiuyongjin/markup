@@ -1,24 +1,25 @@
 # mdoc
 
-一个纯前端的 Markdown 编辑器，基于 **Vite 8 + Vue 3 + TypeScript** 构建。
+一个极简风格的 Markdown 编辑器，基于 **Vite 8 + Vue 3 + TypeScript** 构建。
 
-当前为第一版：只实现编辑能力，不做任何数据存储，刷新页面内容即丢失。
+整个页面只有一个编辑区：没有工具栏，没有分栏预览，打开就能写。
+**边输入边渲染**，标记没有闭合时按原文显示，闭合的瞬间立刻变成对应样式。
 
-## 交互
-
-整篇文档默认以**排版后的样子**呈现，页面上没有任何工具栏：
-
-- **点击任意段落** → 该段切换成源码编辑框，光标落在点击的位置
-- 编辑时，源码下方**实时显示**这一段的渲染结果
-- **点击文档以外区域**或按 `Esc` → 退出编辑，段落还原为排版效果
-- `Enter` 另起一段，`Tab` 缩进两格
+```text
+*     ->  *
+**    ->  **
+** hello  ->  ** hello
+** hello **  ->  hello（加粗）
+`     ->  `
+`hello`  ->  hello（行内代码）
+```
 
 ## 功能
 
-- 块级即时编辑：文档按空行切分成块，只渲染/编辑被点击的那一块
-- 实时渲染预览（markdown-it）
-- 亮色 / 暗色主题自适应
-- 底部状态栏显示字数与行数
+- **加粗** `**文字**`
+- **行内代码** `` `文字` ``
+- 编辑即预览，未闭合的标记保持原样
+- 亮色 / 暗色主题自动跟随系统
 
 ## 开发
 
@@ -27,25 +28,32 @@ pnpm install
 pnpm dev        # 启动开发服务器
 pnpm build      # 类型检查 + 生产构建
 pnpm preview    # 预览构建产物
+pnpm test       # 解析器单元测试（node 直接运行）
 ```
 
 ## 目录结构
 
 ```
 src/
-├── App.vue                        # 文档布局、编辑状态协调
+├── App.vue                        # 首页：整页就是一个编辑区
 ├── components/
-│   └── DocBlock.vue               # 单个块：渲染态 / 源码编辑态
-├── lib/
-│   ├── blocks.ts                  # 文档切块（跳过代码块内的空行）
-│   ├── markdown.ts                # markdown-it 实例
-│   └── sample.ts                  # 默认示例文档
-├── main.ts
-└── style.css
+│   └── MarkdownEditor.vue         # 编辑区组件（只负责挂载/销毁）
+├── markdown/
+│   ├── parser.ts                  # Markdown 解析
+│   ├── dom.ts                     # token 树 <-> DOM 互转 + 光标映射
+│   └── editor.ts                  # 编辑器核心逻辑
+├── main.ts                        # 应用入口
+└── style.css                      # 全局样式（含亮/暗色主题变量）
+
+test/
+├── parser.test.ts                 # 解析器单元测试
+├── browser.test.ts                # 浏览器端交互测试
+└── build.mjs                      # 打包浏览器测试脚本
+
+docs/
+└── implementation.md              # 技术实现文档
 ```
 
-## 技术说明
+## 文档
 
-- 预览使用 [markdown-it](https://github.com/markdown-it/markdown-it) 渲染，并关闭了 `html` 选项，源码中的原始 HTML 会被转义，避免 XSS。
-- 切块时会识别围栏代码块（``` / ~~~），代码块内部的空行不会被误切。
-- 监听文档级 `mousedown` 时使用 `composedPath()` 判断点击位置，因为事件冒泡到 `document` 时 Vue 可能已经把节点卸载，此时 `event.target` 已脱离文档树。
+- [技术实现](docs/implementation.md) —— 解析规则、编辑模型、光标映射与测试方案

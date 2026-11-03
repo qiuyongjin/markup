@@ -1,13 +1,9 @@
 :root {
   --text: #3c3742;
-  --text-h: #08060d;
-  --muted: #8a8494;
   --bg: #fff;
-  --bg-soft: #f7f7f9;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #18a058;
-  --accent-soft: rgba(24, 160, 88, 0.12);
+  --muted: #a49eb0;
+  --code-bg: rgba(15, 15, 25, 0.07);
+  --accent: #2f6fed;
 
   font: 17px/1.75 system-ui, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color-scheme: light dark;
@@ -20,14 +16,10 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --text: #c8c6cf;
-    --text-h: #f3f4f6;
-    --muted: #8b8a95;
     --bg: #16171d;
-    --bg-soft: #1c1e26;
-    --border: #2e303a;
-    --code-bg: #22242e;
-    --accent: #42d392;
-    --accent-soft: rgba(66, 211, 146, 0.14);
+    --muted: #6d677a;
+    --code-bg: rgba(255, 255, 255, 0.09);
+    --accent: #7aa2f7;
   }
 }
 
@@ -40,207 +32,40 @@ body {
   background: var(--bg);
 }
 
-/* ---------- 文档 ---------- */
-
-.doc {
-  max-width: 780px;
-  margin: 0 auto;
-  padding: 76px 28px 140px;
+/* 整个首页就是一个编辑区 */
+.page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
 }
 
-.block {
-  margin: 0 0 1.05em;
-  position: relative;
-}
-
-.block:last-child {
-  margin-bottom: 0;
-}
-
-.block.kind-heading {
-  margin-top: 1.7em;
-  margin-bottom: 0.55em;
-}
-
-.block:first-child.kind-heading {
-  margin-top: 0;
-}
-
-.block.kind-quote,
-.block.kind-code {
-  margin-bottom: 1.2em;
-}
-
-.block.is-editing {
-  margin-bottom: 1.4em;
-}
-
-/* ---------- 源码编辑框 ---------- */
-
-.block-source {
-  display: block;
+.editor {
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: var(--bg-soft);
-  color: var(--text-h);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13.5px;
-  line-height: 1.7;
-  resize: none;
+  max-width: 780px;
+  min-height: 100vh;
+  padding: 72px 28px 45vh;
   outline: none;
-  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  caret-color: var(--accent);
+  font: inherit;
+  line-height: 1.8;
 }
 
-.block-source:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-/* 编辑中：源码下方的实时预览 */
-.block-live {
-  margin-top: 12px;
-  padding-left: 12px;
-  border-left: 2px solid var(--border);
-}
-
-/* 空段落也需要可点击的区域 */
-.block-empty {
-  min-height: 1.4em;
-}
-
-/* ---------- Markdown 渲染 ---------- */
-
-.md-content > :first-child {
-  margin-top: 0;
-}
-
-.md-content > :last-child {
-  margin-bottom: 0;
-}
-
-.md-content p {
-  margin: 0;
-}
-
-.md-content h1,
-.md-content h2,
-.md-content h3,
-.md-content h4 {
-  margin: 0;
-  line-height: 1.35;
-  font-weight: 650;
-  color: var(--text-h);
-}
-
-.md-content h1 {
-  font-size: 1.7em;
-  letter-spacing: -0.01em;
-}
-
-.md-content h2 {
-  font-size: 1.32em;
-}
-
-.md-content h3 {
-  font-size: 1.12em;
-}
-
-.md-content a {
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.md-content ul,
-.md-content ol {
-  margin: 0;
-  padding-left: 1.6em;
-}
-
-.md-content li {
-  margin: 0.15em 0;
-}
-
-.md-content li > ul,
-.md-content li > ol {
-  margin: 0.15em 0;
-}
-
-.md-content blockquote {
-  margin: 0;
-  padding: 0.1em 0 0.1em 1em;
-  border-left: 3px solid var(--accent);
+.editor:empty::before {
+  content: attr(data-placeholder);
   color: var(--muted);
+  pointer-events: none;
 }
 
-.md-content code {
+.editor strong {
+  font-weight: 700;
+}
+
+.editor code {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.88em;
+  background: var(--code-bg);
   padding: 0.15em 0.35em;
   border-radius: 4px;
-  background: var(--code-bg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.86em;
-}
-
-.md-content pre {
-  margin: 0;
-  padding: 14px 16px;
-  border-radius: 8px;
-  background: var(--code-bg);
-  overflow-x: auto;
-}
-
-.md-content pre code {
-  padding: 0;
-  background: none;
-  font-size: 0.84em;
-  line-height: 1.6;
-}
-
-.md-content hr {
-  margin: 0;
-  border: 0;
-  border-top: 1px solid var(--border);
-}
-
-.md-content img {
-  max-width: 100%;
-}
-
-.md-content table {
-  border-collapse: collapse;
-}
-
-.md-content th,
-.md-content td {
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-}
-
-.md-content th {
-  background: var(--bg-soft);
-}
-
-/* ---------- 状态 ---------- */
-
-.status {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  padding: 12px 24px;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: right;
-  pointer-events: none;
-  opacity: 0.75;
-}
-
-/* ---------- 窄屏 ---------- */
-
-@media (max-width: 640px) {
-  .doc {
-    padding: 40px 20px 120px;
-  }
 }

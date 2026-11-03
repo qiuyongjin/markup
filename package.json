@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node test/parser.test.ts",
+    "test:browser": "node test/build.mjs"
   },
   "dependencies": {
-    "markdown-it": "^15.0.3",
     "vue": "^3.5.44"
   },
   "devDependencies": {
