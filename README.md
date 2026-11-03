@@ -1,6 +1,6 @@
 # mdoc
 
-一个极简风格的 Markdown 编辑器，基于 **Vite 8 + Vue 3 + TypeScript** 构建。
+一个极简风格的 Markdown 编辑器，基于 **Vite 8 + Vue 3 + TypeScript + Sass** 构建。
 
 整个页面只有一个编辑区：没有工具栏，没有分栏预览，打开就能写。
 **边输入边渲染**，标记没有闭合时按原文显示，闭合的瞬间立刻变成对应样式。
@@ -50,6 +50,10 @@ pnpm preview    # 预览构建产物
 pnpm test       # 解析器单元测试（node 直接运行）
 ```
 
+样式用 Sass 编写，源码在 `src/styles/`：主题色与字体放在 `_tokens.scss`，
+反复出现的样式片段放在 `_mixins.scss`，其余按界面部分拆成 `_base` / `_editor` /
+`_suggest` / `_popup`，由 `main.scss` 拼起来。开发服务器和构建都会自动编译。
+
 ## 目录结构
 
 ```text
@@ -66,7 +70,14 @@ src/
 ├── pages/
 │   └── store.ts                   # 页面仓库（页面只存在内存里）
 ├── main.ts                        # 应用入口
-└── style.css                      # 全局样式（含亮/暗色主题变量）
+└── styles/                        # 全局样式，用 Sass 写
+    ├── main.scss                  # 样式入口：把各个部分拼起来
+    ├── _tokens.scss               # 主题色与字体（亮/暗两套）
+    ├── _mixins.scss               # 反复出现的样式片段
+    ├── _base.scss                 # 主题变量、重置与页面骨架
+    ├── _editor.scss               # 编辑区与 Markdown 排版
+    ├── _suggest.scss              # 候选窗口
+    └── _popup.scss                # 页面弹窗
 
 test/
 ├── parser.test.ts                 # 解析器单元测试

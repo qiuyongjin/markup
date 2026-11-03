@@ -193,7 +193,7 @@ hello\n<span data-md-tail></span>
 | --- | --- |
 | `editor.render()` | 源码以 `\n` 结尾时补上占位元素 |
 | `positionForSourceOffset()` | 源码末尾的偏移映射到占位元素里，光标才会落在最后一行 |
-| `style.css` | 占位元素的样式（至少 1px 宽、能变宽的行内块） |
+| `styles/_editor.scss` | 占位元素的样式（至少 1px 宽、能变宽的行内块） |
 
 ### 输入法组合输入落在占位元素里
 

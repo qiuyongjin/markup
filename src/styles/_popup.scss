@@ -1,0 +1,61 @@
+// 页面弹窗：点击 `[[页面名]]` 里的页面名时弹出。
+
+@use 'mixins' as m;
+
+.popup-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(15, 15, 25, 0.32);
+}
+
+.popup {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 100%);
+  max-height: 82vh;
+  padding: 18px 22px 24px;
+  @include m.panel(14px, 24px, 64px);
+}
+
+.popup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.popup-title {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  @include m.ellipsis;
+}
+
+.popup-back,
+.popup-close,
+.popup-create {
+  @include m.button;
+}
+
+.popup-missing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.popup-body {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  margin-top: 12px;
+}

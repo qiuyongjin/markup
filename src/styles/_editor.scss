@@ -1,0 +1,112 @@
+// 编辑区：正文排版，以及 Markdown 标记渲染出来的样式。
+
+@use 'sass:map';
+@use 'tokens' as t;
+
+// 各级标题的字号和上下留白
+$headings: (
+  1: (size: 1.6em, margin: 1.05em 0 0.45em),
+  2: (size: 1.3em, margin: 0.9em 0 0.35em),
+  3: (size: 1.15em, margin: 0.8em 0 0.3em),
+  4: (size: 1em, margin: 0.7em 0 0.25em),
+  5: (size: 1em, margin: 0.7em 0 0.25em),
+  6: (size: 1em, margin: 0.7em 0 0.25em),
+);
+
+.editor {
+  width: 100%;
+  max-width: 780px;
+  min-height: 100vh;
+  padding: 72px 28px 45vh;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  caret-color: var(--accent);
+  font: inherit;
+  line-height: 1.8;
+
+  &:empty::before {
+    content: attr(data-placeholder);
+    color: var(--muted);
+    pointer-events: none;
+  }
+
+  // 末尾换行的占位元素：撑出最后一行，好让光标停在这一行上。
+  // 宽度至少 1px——零宽的盒子浏览器不会画光标；
+  // 但要能跟着内容一起变宽：输入法组合输入时，候选文字会被插进这个元素里，
+  // 宽度写死的话每个字母都会单独占一行。
+  [data-md-tail] {
+    display: inline-block;
+    min-width: 1px;
+    min-height: 1em;
+    vertical-align: top;
+  }
+
+  strong {
+    font-weight: 700;
+  }
+
+  code {
+    font-family: t.$font-mono;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+  }
+
+  // 标题：用行内块渲染。
+  // 行内块既能撑开上下留白（像真正的标题那样），又不会打断段落的换行——
+  // 文档始终是一段连续的流，换行只靠文本节点里的 \n，
+  // 这样光标在源码和 DOM 之间的映射不用为标题做特例。
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    display: inline-block;
+    vertical-align: top;
+    max-width: 100%;
+    font-weight: 700;
+    line-height: 1.4;
+    // 空标题（刚打完 `# `）也要有标题的高度，光标才看得出来在哪
+    min-width: 1px;
+    min-height: 1.4em;
+  }
+
+  @each $level, $style in $headings {
+    h#{$level} {
+      font-size: map.get($style, size);
+      margin: map.get($style, margin);
+    }
+  }
+
+  // 双向链接：[[页面名]] 渲染成可点击的链接
+  a[data-md-link] {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-color: var(--accent-soft);
+    text-underline-offset: 3px;
+    cursor: pointer;
+
+    &:hover {
+      text-decoration-color: var(--accent);
+    }
+
+    // 断链：页面还不存在
+    &.is-missing {
+      color: var(--muted);
+      text-decoration-style: dashed;
+
+      &:hover {
+        color: var(--text);
+      }
+    }
+  }
+}
+
+/* 页面弹窗里用的紧凑排版 */
+.editor--compact {
+  min-height: 0;
+  padding: 0;
+}

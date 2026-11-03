@@ -1,0 +1,36 @@
+// 基础样式：主题变量、重置与页面骨架。
+
+@use 'tokens' as t;
+
+:root {
+  @include t.theme(t.$light);
+
+  font: 17px/1.75 t.$font-ui;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    @include t.theme(t.$dark);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+/* 整个首页就是一个编辑区 */
+.page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+}

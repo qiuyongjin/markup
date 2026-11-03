@@ -1,0 +1,43 @@
+// 设计变量：主题色与字体。
+//
+// 颜色最终以 CSS 自定义属性的形式输出（见 theme 混入），
+// 这样运行时才能跟随系统切换主题，不必重新生成样式表。
+
+// 亮色主题
+$light: (
+  text: #3c3742,
+  bg: #fff,
+  muted: #a49eb0,
+  code-bg: rgba(15, 15, 25, 0.07),
+  accent: #2f6fed,
+  accent-soft: rgba(47, 111, 237, 0.12),
+  panel: #fff,
+  border: rgba(15, 15, 25, 0.12),
+  shadow: rgba(15, 15, 25, 0.18),
+);
+
+// 暗色主题
+$dark: (
+  text: #c8c6cf,
+  bg: #16171d,
+  muted: #6d677a,
+  code-bg: rgba(255, 255, 255, 0.09),
+  accent: #7aa2f7,
+  accent-soft: rgba(122, 162, 247, 0.18),
+  panel: #22242c,
+  border: rgba(255, 255, 255, 0.14),
+  shadow: rgba(0, 0, 0, 0.5),
+);
+
+// 界面字体
+$font-ui: system-ui, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+// 等宽字体
+$font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+// 把一组主题值输出成 CSS 自定义属性
+@mixin theme($vars) {
+  @each $name, $value in $vars {
+    --#{$name}: #{$value};
+  }
+}
