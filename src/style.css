@@ -80,3 +80,49 @@ body {
   padding: 0.15em 0.35em;
   border-radius: 4px;
 }
+
+/* 标题：用行内块渲染。
+   行内块既能撑开上下留白（像真正的标题那样），又不会打断段落的换行——
+   文档始终是一段连续的流，换行只靠文本节点里的 \n，
+   这样光标在源码和 DOM 之间的映射不用为标题做特例。 */
+.editor h1,
+.editor h2,
+.editor h3,
+.editor h4,
+.editor h5,
+.editor h6 {
+  display: inline-block;
+  vertical-align: top;
+  max-width: 100%;
+  font-weight: 700;
+  line-height: 1.4;
+  /* 空标题（刚打完 `# `）也要有标题的高度，光标才看得出来在哪 */
+  min-width: 1px;
+  min-height: 1.4em;
+}
+
+.editor h1 {
+  font-size: 1.6em;
+  margin: 1.05em 0 0.45em;
+}
+
+.editor h2 {
+  font-size: 1.3em;
+  margin: 0.9em 0 0.35em;
+}
+
+.editor h3 {
+  font-size: 1.15em;
+  margin: 0.8em 0 0.3em;
+}
+
+.editor h4 {
+  font-size: 1em;
+  margin: 0.7em 0 0.25em;
+}
+
+.editor h5,
+.editor h6 {
+  font-size: 1em;
+  margin: 0.7em 0 0.25em;
+}

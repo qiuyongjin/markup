@@ -64,7 +64,7 @@ function visible(root: HTMLElement): string {
 }
 
 function tag(root: HTMLElement): string {
-  return root.innerHTML.replace(/ data-md="[^"]*"/g, '')
+  return root.innerHTML.replace(/ data-md(-end)?="[^"]*"/g, '')
 }
 
 /** 内容排了几行（按不同的行顶算） */
@@ -73,6 +73,29 @@ function lineCount(node: Node): number {
   range.selectNodeContents(node)
   const tops = new Set<number>()
   for (const rect of Array.from(range.getClientRects())) tops.add(Math.round(rect.top))
+  return tops.size
+}
+
+/**
+ * 文字排了几行（按不同的行顶算）。
+ *
+ * 和 `lineCount` 的区别：只看文字本身，不算元素的盒子。
+ * 标题是行内块，它的盒子和里面的文字是两个不同的行顶，
+ * 直接用 `lineCount` 会把同一行算成两行。
+ */
+function textLineCount(root: HTMLElement): number {
+  const tops = new Set<number>()
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode()
+  while (node) {
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    for (const rect of Array.from(range.getClientRects())) {
+      // 换行会留下一个零宽的片段，不算一行
+      if (rect.height > 0 && rect.width > 0) tops.add(Math.round(rect.top))
+    }
+    node = walker.nextNode()
+  }
   return tops.size
 }
 
@@ -165,6 +188,121 @@ function insertComposingText(text: string): Text {
   type(' world')
   check(visible(root) === 'hello world', '行内代码：闭合后继续输入', JSON.stringify(visible(root)))
   check(editor.markdown === '`hello` world', '行内代码：闭合后继续输入的源码', editor.markdown)
+}
+
+// ---------------------------------------------------------------- 标题
+
+{
+  const { root, editor } = makeEditor()
+
+  type('#')
+  check(visible(root) === '#', '标题：输入 # 显示为 #', visible(root))
+  check(editor.markdown === '#', '标题：源码为 #', editor.markdown)
+  check(root.querySelector('h1') === null, '标题：只有 # 还不是标题', tag(root))
+
+  type(' ')
+  check(root.querySelector('h1') !== null, '标题：打完空格变成 h1', tag(root))
+  check(visible(root) === '', '标题：标记被消费', JSON.stringify(visible(root)))
+  check(editor.markdown === '# ', '标题：源码保留标记', JSON.stringify(editor.markdown))
+
+  type('标题')
+  check(visible(root) === '标题', '标题：内容正常显示', JSON.stringify(visible(root)))
+  check(root.querySelector('h1')?.textContent === '标题', '标题：内容在 h1 里', tag(root))
+  check(editor.markdown === '# 标题', '标题：源码是 # 标题', editor.markdown)
+  check(serializeNodes(root) === '# 标题', '标题：DOM 还原成源码', JSON.stringify(serializeNodes(root)))
+
+  // 光标在标题内容末尾
+  const range = window.getSelection()?.getRangeAt(0)
+  check(
+    range?.startContainer === root.querySelector('h1')?.firstChild,
+    '标题：光标在标题内容末尾',
+    `${range?.startContainer.nodeName}`,
+  )
+}
+
+{
+  const { root, editor } = makeEditor()
+
+  typeAll('## 二级')
+  check(root.querySelector('h2') !== null, '标题：两个井号是二级标题', tag(root))
+  check(root.querySelector('h2')?.textContent === '二级', '标题：二级标题内容', tag(root))
+  check(editor.markdown === '## 二级', '标题：二级标题源码', editor.markdown)
+}
+
+{
+  // 退格删掉空格，标题就变回普通文本
+  const { root, editor } = makeEditor()
+
+  type('#')
+  type(' ')
+  check(root.querySelector('h1') !== null, '标题（退格）：先变成标题', tag(root))
+
+  backspace()
+  check(editor.markdown === '#', '标题（退格）：删掉空格后的源码', JSON.stringify(editor.markdown))
+  check(visible(root) === '#', '标题（退格）：变回普通文本', JSON.stringify(visible(root)))
+  check(root.querySelector('h1') === null, '标题（退格）：不再是标题', tag(root))
+}
+
+{
+  // 标题结束之后，正文另起一行，中间不能多出空行
+  const { root, editor } = makeEditor()
+
+  typeAll('# 标题')
+  enter()
+  check(editor.markdown === '# 标题\n', '标题（回车）：源码以换行结尾', JSON.stringify(editor.markdown))
+
+  // 光标要落到新的一行上，不能留在标题里
+  const tail = root.lastElementChild
+  check(
+    tail instanceof HTMLElement && tail.hasAttribute('data-md-tail'),
+    '标题（回车）：末尾补上占位元素',
+    tag(root),
+  )
+  check(
+    window.getSelection()?.getRangeAt(0)?.startContainer === tail,
+    '标题（回车）：光标落到标题外面',
+    `${window.getSelection()?.getRangeAt(0)?.startContainer.nodeName}`,
+  )
+
+  typeAll('正文')
+  check(editor.markdown === '# 标题\n正文', '标题（回车）：继续输入', JSON.stringify(editor.markdown))
+  check(root.querySelector('h1')?.textContent === '标题', '标题（回车）：正文没有跑进标题', tag(root))
+  check(textLineCount(root) === 2, '标题（回车）：标题和正文各占一行', `排了 ${textLineCount(root)} 行`)
+}
+
+{
+  // 标题前面有正文时，标题另起一行
+  const { root, editor } = makeEditor()
+
+  typeAll('正文')
+  enter()
+  typeAll('# 标题')
+  check(editor.markdown === '正文\n# 标题', '标题（正文后）：源码', JSON.stringify(editor.markdown))
+  check(root.querySelector('h1')?.textContent === '标题', '标题（正文后）：标题内容', tag(root))
+  check(textLineCount(root) === 2, '标题（正文后）：正文和标题各占一行', `排了 ${textLineCount(root)} 行`)
+}
+
+{
+  // 标题里也能用输入法
+  const { root, editor } = makeEditor()
+
+  typeAll('# ')
+  root.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+
+  const heading = root.querySelector('h1')!
+  const textNode = document.createTextNode('中文')
+  heading.appendChild(textNode)
+  const range = document.createRange()
+  range.setStart(textNode, 2)
+  range.collapse(true)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+  root.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }))
+
+  root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '中文' }))
+  check(editor.markdown === '# 中文', '标题（输入法）：组合输入结束后同步源码', JSON.stringify(editor.markdown))
+  check(root.querySelector('h1')?.textContent === '中文', '标题（输入法）：文字留在标题里', tag(root))
 }
 
 // ---------------------------------------------------------------- 编辑已有内容
@@ -415,6 +553,57 @@ function insertComposingText(text: string): Text {
     '光标映射：普通文本位置可以原样还原',
     String(sourceOffsetAt(root, textPos.node, textPos.offset)),
   )
+
+  // 标题：源码 "# 标题"，标题内容从偏移 2 开始
+  const headingRoot = document.createElement('div')
+  document.body.appendChild(headingRoot)
+  renderTokens(parseMarkdown('# 标题'), headingRoot)
+
+  const headingPos = positionForSourceOffset(headingRoot, 3)
+  check(
+    sourceOffsetAt(headingRoot, headingPos.node, headingPos.offset) === 3,
+    '光标映射：标题里的位置可以原样还原',
+    String(sourceOffsetAt(headingRoot, headingPos.node, headingPos.offset)),
+  )
+  check(
+    (headingPos.node as Element).tagName === 'H1' ||
+      (headingPos.node as Node).parentElement?.tagName === 'H1',
+    '光标映射：标题里的位置落在 h1 内部',
+    `${(headingPos.node as Node).nodeName}`,
+  )
+}
+
+// ---------------------------------------------------------------- 源码往返
+
+{
+  // 源码 -> DOM -> 源码，必须原样还原
+  const samples = [
+    '',
+    '正文',
+    '# 标题',
+    '# ',
+    '# 标题\n',
+    '# 标题\n正文',
+    '正文\n# 标题',
+    '正文\n# 标题\n正文',
+    '# 标题\n\n## 二级标题\n',
+    '# **加粗** 标题',
+    '# `代码` 标题',
+    '**加粗**\n# 标题\n`代码`',
+    '## 二级标题',
+    'a\nb\n# c\nd',
+    '# 标题\n**加粗**\n# 另一个\n',
+  ]
+  for (const sample of samples) {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    renderTokens(parseMarkdown(sample), root)
+    check(
+      serializeNodes(root) === sample,
+      `源码往返：${JSON.stringify(sample)}`,
+      JSON.stringify(serializeNodes(root)),
+    )
+  }
 }
 
 // ---------------------------------------------------------------- 全选 / 删除

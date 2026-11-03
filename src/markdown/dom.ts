@@ -6,9 +6,10 @@
  * 也可以在源码发生变化后重新渲染并把光标还原到正确的位置。
  */
 
-import { BOLD_MARK, CODE_MARK, type InlineToken } from './parser'
+import { BOLD_MARK, CODE_MARK, HEADING_MARK, type Token } from './parser'
 
 const MD_ATTR = 'data-md'
+const MD_END_ATTR = 'data-md-end'
 const TAIL_ATTR = 'data-md-tail'
 
 export interface DomPosition {
@@ -37,8 +38,21 @@ function isTailElement(node: Node | null | undefined): node is HTMLElement {
   return !!node && node.nodeType === Node.ELEMENT_NODE && (node as Element).hasAttribute(TAIL_ATTR)
 }
 
+/**
+ * 元素对应的标记。
+ *
+ * 大多数标记是成对的（`**`、`\``），结束标记默认和起始标记一样；
+ * 标题没有结束标记，用 `data-md-end=""` 显式说明。
+ */
+function markersOf(el: Element): { open: string; close: string } {
+  const open = el.getAttribute(MD_ATTR)
+  if (open === null) return { open: '', close: '' }
+  const close = el.hasAttribute(MD_END_ATTR) ? el.getAttribute(MD_END_ATTR) ?? '' : open
+  return { open, close }
+}
+
 /** 渲染 token 树 */
-export function renderTokens(tokens: InlineToken[], parent: Node): void {
+export function renderTokens(tokens: Token[], parent: Node): void {
   for (const token of tokens) {
     if (token.kind === 'text') {
       parent.appendChild(document.createTextNode(token.text))
@@ -46,6 +60,12 @@ export function renderTokens(tokens: InlineToken[], parent: Node): void {
       const el = document.createElement('code')
       el.setAttribute(MD_ATTR, CODE_MARK)
       el.textContent = token.text
+      parent.appendChild(el)
+    } else if (token.kind === 'heading') {
+      const el = document.createElement(`h${token.level}`)
+      el.setAttribute(MD_ATTR, token.marker)
+      el.setAttribute(MD_END_ATTR, '')
+      renderTokens(token.children, el)
       parent.appendChild(el)
     } else {
       const el = document.createElement('strong')
@@ -89,14 +109,17 @@ function serializeNode(node: Node): string {
 
   if (tag === 'br') return '\n'
 
-  const marker = el.getAttribute(MD_ATTR)
-  if (marker) return marker + serializeChildren(el, false) + marker
+  const { open, close } = markersOf(el)
+  if (open) return open + serializeChildren(el, false) + close
 
   // 浏览器可能生成没有 data-md 的元素，这里做兜底还原
   if (tag === 'strong' || tag === 'b') return BOLD_MARK + serializeChildren(el, false) + BOLD_MARK
   if (tag === 'code') return CODE_MARK + serializeChildren(el, false) + CODE_MARK
   if (tag === 'em' || tag === 'i') return serializeChildren(el, false)
   if (tag === 'div' || tag === 'p') return serializeChildren(el, false) + '\n'
+  if (/^h[1-6]$/.test(tag)) {
+    return HEADING_MARK.repeat(Number(tag[1])) + ' ' + serializeChildren(el, false)
+  }
 
   return serializeChildren(el, false)
 }
@@ -104,8 +127,13 @@ function serializeNode(node: Node): string {
 /** 元素起始标记占用的源码长度 */
 function openLength(node: Node): number {
   if (node.nodeType !== Node.ELEMENT_NODE) return 0
-  const marker = (node as Element).getAttribute(MD_ATTR)
-  return marker ? marker.length : 0
+  return markersOf(node as Element).open.length
+}
+
+/** 元素结束标记占用的源码长度 */
+function closeLength(node: Node): number {
+  if (node.nodeType !== Node.ELEMENT_NODE) return 0
+  return markersOf(node as Element).close.length
 }
 
 /** 元素内容占用的源码长度 */
@@ -121,10 +149,7 @@ export function sourceLength(node: Node): number {
   if (node.nodeType !== Node.ELEMENT_NODE) return 0
 
   const el = node as Element
-  let len = contentLength(el)
-  const marker = el.getAttribute(MD_ATTR)
-  if (marker) len += marker.length * 2
-  return len
+  return openLength(el) + contentLength(el) + closeLength(el)
 }
 
 /**

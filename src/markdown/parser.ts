@@ -1,20 +1,24 @@
 /**
  * 极简 Markdown 解析器（零第三方依赖）。
  *
- * 目前只实现两种最基础的行内语法：
+ * 支持的语法：
+ *   - 标题：`# 文字`（行首 1~6 个 `#`，后面跟一个空格）
  *   - 加粗：`**文字**`
  *   - 行内代码：`` `文字` ``
  *
  * 解析规则：
- *   1. 标记必须成对出现才会生效；没有配对的标记按普通文本原样输出。
+ *   1. 行内标记必须成对出现才会生效；没有配对的标记按普通文本原样输出。
  *   2. 多个同类标记依次配对：第 1 个与第 2 个一组，第 3 个与第 4 个一组，以此类推。
  *   3. 行内代码优先级高于加粗，代码内部不再解析其它语法。
+ *   4. 标题是行级语法：只看行首，标题后面的内容不再解析行内语法
+ *      （标题和它后面的内容是两个独立的块）。
  */
 
-export type InlineToken =
+export type Token =
   | { kind: 'text'; text: string }
-  | { kind: 'bold'; children: InlineToken[] }
+  | { kind: 'bold'; children: Token[] }
   | { kind: 'code'; text: string }
+  | { kind: 'heading'; level: number; marker: string; children: Token[] }
 
 export interface Span {
   /** 内容区间（不含标记本身）的起始下标 */
@@ -25,12 +29,83 @@ export interface Span {
 
 export const BOLD_MARK = '**'
 export const CODE_MARK = '`'
+export const HEADING_MARK = '#'
 
-/** 解析一段 Markdown 源码，返回行内 token 列表 */
-export function parseMarkdown(source: string): InlineToken[] {
-  const codeSpans = findCodeSpans(source)
-  const boldSpans = findBoldSpans(source, codeSpans)
-  return buildTokens(source, codeSpans, boldSpans)
+/** 标题标记：行首 1~6 个 `#`，后面至少一个空格或制表符 */
+const HEADING_PATTERN = /^(#{1,6})([ \t]+)/
+
+/** 解析一段 Markdown 源码，返回 token 列表 */
+export function parseMarkdown(source: string): Token[] {
+  const tokens: Token[] = []
+  const lines = source.split('\n')
+
+  // 普通行先攒起来，攒成一段再解析：
+  // 这样跨行的加粗、行内代码依然能配对（和文档里没有标题时一致）
+  let paragraph = ''
+
+  const flushParagraph = () => {
+    if (!paragraph) return
+    tokens.push(...parseInline(paragraph))
+    paragraph = ''
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    const isLast = i === lines.length - 1
+    const heading = matchHeading(line)
+
+    if (!heading) {
+      paragraph += line + (isLast ? '' : '\n')
+      continue
+    }
+
+    flushParagraph()
+    tokens.push({
+      kind: 'heading',
+      level: heading.level,
+      marker: heading.marker,
+      children: parseInline(heading.content),
+    })
+    // 标题行末尾的换行留在标题外面，跟着后面的普通行一起解析
+    if (!isLast) paragraph = '\n'
+  }
+  flushParagraph()
+
+  return tokens
+}
+
+interface HeadingMatch {
+  /** 标题级别：1~6 */
+  level: number
+  /** 标题标记：`#`、`##`…加上后面的空格 */
+  marker: string
+  /** 标题正文（不含标记） */
+  content: string
+}
+
+/**
+ * 判断一行是不是标题。
+ *
+ * 必须是行首的 1~6 个 `#`，后面跟至少一个空格：
+ *   - `# 标题` 是标题
+ *   - `## 标题` 是二级标题
+ *   - `#标题`、`#`、`正文 # 标题` 都不是标题，按普通文本处理
+ */
+function matchHeading(line: string): HeadingMatch | null {
+  const match = HEADING_PATTERN.exec(line)
+  if (!match) return null
+  return {
+    level: match[1]!.length,
+    marker: match[1]! + match[2]!,
+    content: line.slice(match[0].length),
+  }
+}
+
+/** 解析一段行内内容，返回 token 列表 */
+function parseInline(text: string): Token[] {
+  const codeSpans = findCodeSpans(text)
+  const boldSpans = findBoldSpans(text, codeSpans)
+  return buildTokens(text, codeSpans, boldSpans)
 }
 
 /**
@@ -92,7 +167,7 @@ function findBoldSpans(text: string, codeSpans: Span[]): Span[] {
  *   - `textEnd`：本事件之前的普通文本到哪里结束（跳过起始标记）
  *   - `resume` ：本事件处理完之后，普通文本从哪里继续（跳过结束标记）
  */
-function buildTokens(text: string, codeSpans: Span[], boldSpans: Span[]): InlineToken[] {
+function buildTokens(text: string, codeSpans: Span[], boldSpans: Span[]): Token[] {
   type Event =
     | { pos: number; order: number; kind: 'code'; span: Span; textEnd: number; resume: number }
     | { pos: number; order: number; kind: 'boldOpen' | 'boldClose'; span: Span; textEnd: number; resume: number }
@@ -128,8 +203,8 @@ function buildTokens(text: string, codeSpans: Span[], boldSpans: Span[]): Inline
   }
   events.sort((a, b) => a.pos - b.pos || a.order - b.order)
 
-  const root: InlineToken[] = []
-  const stack: InlineToken[][] = [root]
+  const root: Token[] = []
+  const stack: Token[][] = [root]
   let pos = 0
 
   const pushText = (value: string) => {
@@ -143,7 +218,7 @@ function buildTokens(text: string, codeSpans: Span[], boldSpans: Span[]): Inline
       pos = event.textEnd
     }
     if (event.kind === 'boldOpen') {
-      const bold: InlineToken = { kind: 'bold', children: [] }
+      const bold: Token = { kind: 'bold', children: [] }
       stack[stack.length - 1].push(bold)
       stack.push(bold.children)
     } else if (event.kind === 'boldClose') {
