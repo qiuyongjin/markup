@@ -10,7 +10,7 @@
  * 行内元素合并等）污染。只有输入法组合输入交给浏览器处理，结束后再从 DOM 回收。
  */
 import { parseMarkdown } from './parser'
-import { positionForSourceOffset, renderTokens, serializeNodes, sourceOffsetAt } from './dom'
+import { createTailElement, positionForSourceOffset, renderTokens, serializeNodes, sourceOffsetAt } from './dom'
 
 interface HistoryEntry {
   source: string
@@ -73,6 +73,12 @@ export class MarkdownEditor {
   render(): void {
     const fragment = document.createDocumentFragment()
     renderTokens(parseMarkdown(this.source), fragment)
+
+    // 结尾是换行时补一个占位元素：撑出最后一行，光标才能停在这一行上
+    if (this.source.endsWith('\n')) {
+      fragment.appendChild(createTailElement())
+    }
+
     this.root.replaceChildren(fragment)
   }
 
@@ -129,12 +135,39 @@ export class MarkdownEditor {
     const selection = window.getSelection()
     selection?.removeAllRanges()
     selection?.addRange(range)
+
+    this.keepCaretVisible(range)
+  }
+
+  /**
+   * 选中整个文档。
+   *
+   * 这里直接用根节点的位置，不能走源码偏移的映射：
+   * 行内元素的起始标记在源码里位于元素之前，在 DOM 里却在元素内部，
+   * 走映射会漏掉开头的标记（比如 `**`），删除时就删不干净。
+   */
+  private selectAll(): void {
+    const range = document.createRange()
+    range.setStart(this.root, 0)
+    range.setEnd(this.root, this.root.childNodes.length)
+
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
   }
 
   /** 光标超出视口时滚动一下 */
   private keepCaretVisible(range: Range): void {
-    const rect = range.getBoundingClientRect()
-    if (!rect || (rect.top === 0 && rect.height === 0)) return
+    let rect = range.getBoundingClientRect()
+
+    // 折叠的选区有时拿不到矩形（比如光标在末尾的占位元素里），退回用所在元素的矩形
+    if (!rect || (rect.top === 0 && rect.height === 0)) {
+      const node = range.startContainer
+      const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement
+      if (!element) return
+      rect = element.getBoundingClientRect()
+    }
+    if (!rect || rect.height === 0) return
 
     const margin = 48
     if (rect.bottom > window.innerHeight - margin) {
@@ -309,8 +342,11 @@ export class MarkdownEditor {
     if (next !== this.source) {
       this.source = next
       this.pushHistory(next, offset)
-      this.render()
     }
+
+    // 浏览器可能顺手改了 DOM 的结构（比如输入法组合输入被取消后，
+    // 它会把末尾的占位元素换成 <br>），重新渲染一次，把 DOM 恢复成源码的样子
+    this.render()
     this.writeCaretOffset(offset)
   }
 
@@ -392,6 +428,11 @@ export class MarkdownEditor {
       // 自己实现加粗，避免浏览器插入原生的 <b> 标签
       event.preventDefault()
       this.wrapSelection('**')
+    } else if (key === 'a') {
+      // 自己实现全选：内容只有一个空行内元素时（例如只剩 `****`），
+      // 浏览器的全选只会得到一个空选区，「全选 + 删除」就删不掉东西
+      event.preventDefault()
+      this.selectAll()
     } else if (key === 'i') {
       event.preventDefault()
     }

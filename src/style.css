@@ -58,6 +58,17 @@ body {
   pointer-events: none;
 }
 
+/* 末尾换行的占位元素：撑出最后一行，好让光标停在这一行上。
+   宽度至少 1px——零宽的盒子浏览器不会画光标；
+   但要能跟着内容一起变宽：输入法组合输入时，候选文字会被插进这个元素里，
+   宽度写死的话每个字母都会单独占一行。 */
+.editor [data-md-tail] {
+  display: inline-block;
+  min-width: 1px;
+  min-height: 1em;
+  vertical-align: top;
+}
+
 .editor strong {
   font-weight: 700;
 }

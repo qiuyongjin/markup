@@ -9,10 +9,32 @@
 import { BOLD_MARK, CODE_MARK, type InlineToken } from './parser'
 
 const MD_ATTR = 'data-md'
+const TAIL_ATTR = 'data-md-tail'
 
 export interface DomPosition {
   node: Node
   offset: number
+}
+
+/**
+ * 末尾换行的占位元素。
+ *
+ * 浏览器不会为结尾的换行符生成行盒（`white-space: pre-wrap` 也不例外），
+ * 于是最后一行的光标无处安放，浏览器会把光标画在上一行的末尾——
+ * 看上去就是「按了回车却没有换行」。
+ *
+ * 所以文档以换行结尾时补一个极窄的行内块：它撑出最后一行，
+ * 光标也能真正停在这一行上。它本身不代表任何源码，序列化时会被忽略。
+ */
+export function createTailElement(): HTMLElement {
+  const el = document.createElement('span')
+  el.setAttribute(TAIL_ATTR, '')
+  return el
+}
+
+/** 是否是末尾换行的占位元素 */
+function isTailElement(node: Node | null | undefined): node is HTMLElement {
+  return !!node && node.nodeType === Node.ELEMENT_NODE && (node as Element).hasAttribute(TAIL_ATTR)
 }
 
 /** 渲染 token 树 */
@@ -36,8 +58,25 @@ export function renderTokens(tokens: InlineToken[], parent: Node): void {
 
 /** 把 DOM 还原成 Markdown 源码 */
 export function serializeNodes(parent: Node): string {
+  return serializeChildren(parent, true)
+}
+
+/** 是否是 <br> */
+function isBrElement(node: Node): node is Element {
+  return node.nodeType === Node.ELEMENT_NODE && (node as Element).tagName.toLowerCase() === 'br'
+}
+
+function serializeChildren(parent: Node, isRoot: boolean): string {
   let out = ''
-  for (const child of parent.childNodes) out += serializeNode(child)
+  const children = parent.childNodes
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i]!
+    // 末尾的 <br> 只是浏览器给「空的最后一行」留的占位
+    // （输入法组合输入被取消后，浏览器会把它塞到最后一行），
+    // 源码里的换行本来就写在文本节点里，这里忽略掉，避免凭空多出一个空行
+    if (isRoot && i === children.length - 1 && isBrElement(child)) continue
+    out += serializeNode(child)
+  }
   return out
 }
 
@@ -51,15 +90,15 @@ function serializeNode(node: Node): string {
   if (tag === 'br') return '\n'
 
   const marker = el.getAttribute(MD_ATTR)
-  if (marker) return marker + serializeNodes(el) + marker
+  if (marker) return marker + serializeChildren(el, false) + marker
 
   // 浏览器可能生成没有 data-md 的元素，这里做兜底还原
-  if (tag === 'strong' || tag === 'b') return BOLD_MARK + serializeNodes(el) + BOLD_MARK
-  if (tag === 'code') return CODE_MARK + serializeNodes(el) + CODE_MARK
-  if (tag === 'em' || tag === 'i') return serializeNodes(el)
-  if (tag === 'div' || tag === 'p') return serializeNodes(el) + '\n'
+  if (tag === 'strong' || tag === 'b') return BOLD_MARK + serializeChildren(el, false) + BOLD_MARK
+  if (tag === 'code') return CODE_MARK + serializeChildren(el, false) + CODE_MARK
+  if (tag === 'em' || tag === 'i') return serializeChildren(el, false)
+  if (tag === 'div' || tag === 'p') return serializeChildren(el, false) + '\n'
 
-  return serializeNodes(el)
+  return serializeChildren(el, false)
 }
 
 /** 元素起始标记占用的源码长度 */
@@ -157,5 +196,14 @@ function walkForPosition(parent: Node, acc: number, target: number): DomPosition
 
 /** Markdown 源码偏移 -> DOM 位置 */
 export function positionForSourceOffset(root: Element, target: number): DomPosition {
-  return walkForPosition(root, 0, Math.max(0, target))
+  const clamped = Math.max(0, target)
+
+  // 文档以换行结尾时，光标要落在末尾的占位元素里。
+  // 否则光标停在换行符的边界上，浏览器会把它画在上一行的末尾。
+  const tail = root.lastElementChild
+  if (isTailElement(tail) && clamped >= sourceLength(root)) {
+    return { node: tail, offset: 0 }
+  }
+
+  return walkForPosition(root, 0, clamped)
 }
