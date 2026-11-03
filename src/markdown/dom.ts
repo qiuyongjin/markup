@@ -6,11 +6,13 @@
  * 也可以在源码发生变化后重新渲染并把光标还原到正确的位置。
  */
 
-import { BOLD_MARK, CODE_MARK, HEADING_MARK, type Token } from './parser'
+import { BOLD_MARK, CODE_MARK, HEADING_MARK, LINK_CLOSE, LINK_OPEN, type Token } from './parser'
 
 const MD_ATTR = 'data-md'
 const MD_END_ATTR = 'data-md-end'
 const TAIL_ATTR = 'data-md-tail'
+const LINK_ATTR = 'data-md-link'
+const PAGE_ATTR = 'data-page'
 
 export interface DomPosition {
   node: Node
@@ -60,6 +62,14 @@ export function renderTokens(tokens: Token[], parent: Node): void {
       const el = document.createElement('code')
       el.setAttribute(MD_ATTR, CODE_MARK)
       el.textContent = token.text
+      parent.appendChild(el)
+    } else if (token.kind === 'link') {
+      const el = document.createElement('a')
+      el.setAttribute(MD_ATTR, LINK_OPEN)
+      el.setAttribute(MD_END_ATTR, LINK_CLOSE)
+      el.setAttribute(LINK_ATTR, '')
+      el.setAttribute(PAGE_ATTR, token.name)
+      el.textContent = token.name
       parent.appendChild(el)
     } else if (token.kind === 'heading') {
       const el = document.createElement(`h${token.level}`)
@@ -115,6 +125,7 @@ function serializeNode(node: Node): string {
   // 浏览器可能生成没有 data-md 的元素，这里做兜底还原
   if (tag === 'strong' || tag === 'b') return BOLD_MARK + serializeChildren(el, false) + BOLD_MARK
   if (tag === 'code') return CODE_MARK + serializeChildren(el, false) + CODE_MARK
+  if (tag === 'a') return LINK_OPEN + serializeChildren(el, false) + LINK_CLOSE
   if (tag === 'em' || tag === 'i') return serializeChildren(el, false)
   if (tag === 'div' || tag === 'p') return serializeChildren(el, false) + '\n'
   if (/^h[1-6]$/.test(tag)) {

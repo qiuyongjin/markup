@@ -5,12 +5,14 @@
  *   - 标题：`# 文字`（行首 1~6 个 `#`，后面跟一个空格）
  *   - 加粗：`**文字**`
  *   - 行内代码：`` `文字` ``
+ *   - 双向链接：`[[页面名]]`
  *
  * 解析规则：
  *   1. 行内标记必须成对出现才会生效；没有配对的标记按普通文本原样输出。
  *   2. 多个同类标记依次配对：第 1 个与第 2 个一组，第 3 个与第 4 个一组，以此类推。
  *   3. 行内代码优先级高于加粗，代码内部不再解析其它语法。
- *   4. 标题是行级语法：只看行首，标题后面的内容不再解析行内语法
+ *   4. 链接的优先级低于行内代码、高于加粗；链接内部不再解析其它语法（页面名是纯文本）。
+ *   5. 标题是行级语法：只看行首，标题后面的内容不再解析行内语法
  *      （标题和它后面的内容是两个独立的块）。
  */
 
@@ -18,6 +20,7 @@ export type Token =
   | { kind: 'text'; text: string }
   | { kind: 'bold'; children: Token[] }
   | { kind: 'code'; text: string }
+  | { kind: 'link'; name: string }
   | { kind: 'heading'; level: number; marker: string; children: Token[] }
 
 export interface Span {
@@ -30,6 +33,8 @@ export interface Span {
 export const BOLD_MARK = '**'
 export const CODE_MARK = '`'
 export const HEADING_MARK = '#'
+export const LINK_OPEN = '[['
+export const LINK_CLOSE = ']]'
 
 /** 标题标记：行首 1~6 个 `#`，后面至少一个空格或制表符 */
 const HEADING_PATTERN = /^(#{1,6})([ \t]+)/
@@ -104,8 +109,9 @@ function matchHeading(line: string): HeadingMatch | null {
 /** 解析一段行内内容，返回 token 列表 */
 function parseInline(text: string): Token[] {
   const codeSpans = findCodeSpans(text)
-  const boldSpans = findBoldSpans(text, codeSpans)
-  return buildTokens(text, codeSpans, boldSpans)
+  const linkSpans = findLinkSpans(text, codeSpans)
+  const boldSpans = findBoldSpans(text, codeSpans, linkSpans)
+  return buildTokens(text, codeSpans, linkSpans, boldSpans)
 }
 
 /**
@@ -133,16 +139,57 @@ function findCodeSpans(text: string): Span[] {
 }
 
 /**
- * 找出成对的 `**`（跳过行内代码内部）。
+ * 找出成对的 `[[` 与 `]]`（跳过行内代码内部）。
+ *
+ * 页面名是纯文本，里面不能再出现方括号、反引号或换行，
+ * 所以 `[[a`b]]`、`[[a]b]]` 都不算链接，按普通文本处理。
+ * 和行内代码重叠的候选链接也会被放弃（代码优先）。
+ */
+function findLinkSpans(text: string, codeSpans: Span[]): Span[] {
+  const spans: Span[] = []
+  let index = 0
+  while (index < text.length) {
+    const code = codeSpans.find((span) => index >= span.start && index < span.end)
+    if (code) {
+      index = code.end
+      continue
+    }
+    if (text.startsWith(LINK_OPEN, index)) {
+      const contentStart = index + LINK_OPEN.length
+      const close = text.indexOf(LINK_CLOSE, contentStart)
+      if (close !== -1) {
+        const content = text.slice(contentStart, close)
+        const overlapsCode = codeSpans.some(
+          (span) => span.start < close && span.end > contentStart,
+        )
+        if (content && !/[[\]`]/.test(content) && !content.includes('\n') && !overlapsCode) {
+          spans.push({ start: contentStart, end: close })
+          index = close + LINK_CLOSE.length
+          continue
+        }
+      }
+    }
+    index += 1
+  }
+  return spans
+}
+
+/**
+ * 找出成对的 `**`（跳过行内代码与链接内部）。
  * 第 1 个与第 2 个配对，第 3 个与第 4 个配对；落单的 `**` 按普通文本处理。
  */
-function findBoldSpans(text: string, codeSpans: Span[]): Span[] {
+function findBoldSpans(text: string, codeSpans: Span[], linkSpans: Span[]): Span[] {
   const marks: number[] = []
   let index = 0
   while (index < text.length) {
     const code = codeSpans.find((span) => index >= span.start && index < span.end)
     if (code) {
       index = code.end
+      continue
+    }
+    const link = linkSpans.find((span) => index >= span.start && index < span.end)
+    if (link) {
+      index = link.end
       continue
     }
     if (text.startsWith(BOLD_MARK, index)) {
@@ -167,9 +214,10 @@ function findBoldSpans(text: string, codeSpans: Span[]): Span[] {
  *   - `textEnd`：本事件之前的普通文本到哪里结束（跳过起始标记）
  *   - `resume` ：本事件处理完之后，普通文本从哪里继续（跳过结束标记）
  */
-function buildTokens(text: string, codeSpans: Span[], boldSpans: Span[]): Token[] {
+function buildTokens(text: string, codeSpans: Span[], linkSpans: Span[], boldSpans: Span[]): Token[] {
   type Event =
     | { pos: number; order: number; kind: 'code'; span: Span; textEnd: number; resume: number }
+    | { pos: number; order: number; kind: 'link'; span: Span; textEnd: number; resume: number }
     | { pos: number; order: number; kind: 'boldOpen' | 'boldClose'; span: Span; textEnd: number; resume: number }
 
   const events: Event[] = []
@@ -181,6 +229,16 @@ function buildTokens(text: string, codeSpans: Span[], boldSpans: Span[]): Token[
       span,
       textEnd: span.start - CODE_MARK.length,
       resume: span.end + CODE_MARK.length,
+    })
+  }
+  for (const span of linkSpans) {
+    events.push({
+      pos: span.start,
+      order: 1,
+      kind: 'link',
+      span,
+      textEnd: span.start - LINK_OPEN.length,
+      resume: span.end + LINK_CLOSE.length,
     })
   }
   for (const span of boldSpans) {
@@ -223,8 +281,10 @@ function buildTokens(text: string, codeSpans: Span[], boldSpans: Span[]): Token[
       stack.push(bold.children)
     } else if (event.kind === 'boldClose') {
       if (stack.length > 1) stack.pop()
-    } else {
+    } else if (event.kind === 'code') {
       stack[stack.length - 1].push({ kind: 'code', text: text.slice(event.span.start, event.span.end) })
+    } else {
+      stack[stack.length - 1].push({ kind: 'link', name: text.slice(event.span.start, event.span.end) })
     }
     pos = event.resume
   }

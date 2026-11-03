@@ -11,6 +11,7 @@ function structure(tokens: Token[]): unknown[] {
   return tokens.map((token) => {
     if (token.kind === 'text') return `text:${token.text}`
     if (token.kind === 'code') return `code:${token.text}`
+    if (token.kind === 'link') return `link:${token.name}`
     if (token.kind === 'heading') return `h${token.level}:${structure(token.children).join('|')}`
     return `bold:${structure(token.children).join('|')}`
   })
@@ -22,6 +23,7 @@ function plain(tokens: Token[]): string {
     .map((token) => {
       if (token.kind === 'text') return token.text
       if (token.kind === 'code') return token.text
+      if (token.kind === 'link') return token.name
       return plain(token.children)
     })
     .join('')
@@ -117,6 +119,45 @@ assertEqual(
   '标题前后的加粗各自成对',
 )
 assertEqual(structure(parseMarkdown('```\n')), ['code:', 'text:`\n'], '反引号照旧按行内代码解析')
+
+console.log('\n7. 双向链接：')
+assertEqual(structure(parseMarkdown('[[hello]]')), ['link:hello'], '"[[hello]]" 是链接')
+assertEqual(structure(parseMarkdown('[[hello world]]')), ['link:hello world'], '页面名可以有空格')
+assertEqual(structure(parseMarkdown('a[[b]]c')), ['text:a', 'link:b', 'text:c'], '链接夹在文字中间')
+assertEqual(structure(parseMarkdown('[[a]][[b]]')), ['link:a', 'link:b'], '两个相邻的链接')
+assertEqual(structure(parseMarkdown('**[[a]]**')), ['bold:link:a'], '加粗里的链接')
+assertEqual(structure(parseMarkdown('# [[a]]')), ['h1:link:a'], '标题里的链接')
+assertEqual(plain(parseMarkdown('[[hello]]')), 'hello', '可见文本就是页面名')
+
+console.log('\n8. 不算链接的情况：')
+const notLinkCases: Array<[string, string]> = [
+  ['[[', '[['],
+  ['[[hello', '[[hello'],
+  ['hello]]', 'hello]]'],
+  ['[[]]', '[[]]'],
+  ['[[a]b]]', '[[a]b]]'],
+  ['[[a`b]]', '[[a`b]]'],
+  ['[[a\nb]]', '[[a\nb]]'],
+]
+for (const [input, expected] of notLinkCases) {
+  assertEqual(structure(parseMarkdown(input)), [`text:${expected}`], JSON.stringify(input))
+}
+
+assertEqual(
+  structure(parseMarkdown('`[[a]]`')),
+  ['code:[[a]]'],
+  '代码里的方括号不解析成链接',
+)
+assertEqual(
+  structure(parseMarkdown('[[**a**]]')),
+  ['link:**a**'],
+  '链接内部不再解析加粗',
+)
+assertEqual(
+  structure(parseMarkdown('[[a]]**b**')),
+  ['link:a', 'bold:text:b'],
+  '链接旁边的加粗照旧生效',
+)
 
 if (failed > 0) {
   console.log(`\n${failed} 个断言失败`)

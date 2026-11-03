@@ -4,6 +4,10 @@
   --muted: #a49eb0;
   --code-bg: rgba(15, 15, 25, 0.07);
   --accent: #2f6fed;
+  --accent-soft: rgba(47, 111, 237, 0.12);
+  --panel: #fff;
+  --border: rgba(15, 15, 25, 0.12);
+  --shadow: rgba(15, 15, 25, 0.18);
 
   font: 17px/1.75 system-ui, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color-scheme: light dark;
@@ -20,6 +24,10 @@
     --muted: #6d677a;
     --code-bg: rgba(255, 255, 255, 0.09);
     --accent: #7aa2f7;
+    --accent-soft: rgba(122, 162, 247, 0.18);
+    --panel: #22242c;
+    --border: rgba(255, 255, 255, 0.14);
+    --shadow: rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -125,4 +133,194 @@ body {
 .editor h6 {
   font-size: 1em;
   margin: 0.7em 0 0.25em;
+}
+
+/* 页面弹窗里用的紧凑排版 */
+.editor--compact {
+  min-height: 0;
+  padding: 0;
+}
+
+/* 双向链接：[[页面名]] 渲染成可点击的链接 */
+.editor a[data-md-link] {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-soft);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.editor a[data-md-link]:hover {
+  text-decoration-color: var(--accent);
+}
+
+/* 断链：页面还不存在 */
+.editor a[data-md-link].is-missing {
+  color: var(--muted);
+  text-decoration-style: dashed;
+}
+
+.editor a[data-md-link].is-missing:hover {
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- 候选窗口 */
+
+.link-suggest {
+  position: fixed;
+  z-index: 30;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px var(--shadow);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.link-suggest-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link-suggest-item {
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.link-suggest-item.is-active {
+  background: var(--accent-soft);
+}
+
+.link-suggest-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.link-suggest-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-suggest-tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.link-suggest-preview {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-suggest-empty {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* 底部的一行快捷键提示 */
+.link-suggest-hint {
+  margin: 6px 0 0;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- 页面弹窗 */
+
+.popup-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(15, 15, 25, 0.32);
+}
+
+.popup {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 100%);
+  max-height: 82vh;
+  padding: 18px 22px 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px var(--shadow);
+}
+
+.popup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.popup-title {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popup-back,
+.popup-close,
+.popup-create {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.popup-back:hover,
+.popup-close:hover,
+.popup-create:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.popup-missing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.popup-body {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  margin-top: 12px;
 }

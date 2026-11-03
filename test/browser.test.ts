@@ -2,7 +2,7 @@
  * 浏览器里的端到端测试：模拟真实按键（浏览器真实按键会先触发 beforeinput）。
  * 由 vite 打包后在浏览器里运行。
  */
-import { MarkdownEditor } from '../src/markdown/editor'
+import { MarkdownEditor, type EditorOptions, type LinkProvider } from '../src/markdown/editor'
 import { positionForSourceOffset, renderTokens, serializeNodes, sourceOffsetAt } from '../src/markdown/dom'
 import { parseMarkdown } from '../src/markdown/parser'
 
@@ -19,12 +19,12 @@ function check(ok: boolean, label: string, detail = ''): void {
   }
 }
 
-function makeEditor(): { root: HTMLElement; editor: MarkdownEditor } {
+function makeEditor(options?: EditorOptions): { root: HTMLElement; editor: MarkdownEditor } {
   const root = document.createElement('div')
   root.className = 'editor'
   root.contentEditable = 'true'
   document.body.appendChild(root)
-  const editor = new MarkdownEditor(root)
+  const editor = new MarkdownEditor(root, options)
   root.focus()
   activeRoot = root
   return { root, editor }
@@ -108,6 +108,13 @@ function enter(): void {
       inputType: 'insertParagraph',
       data: null,
     }),
+  )
+}
+
+/** 模拟按键 */
+function press(key: string, init: KeyboardEventInit = {}): void {
+  activeRoot!.dispatchEvent(
+    new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key, ...init }),
   )
 }
 
@@ -355,6 +362,24 @@ function insertComposingText(text: string): Text {
   check(editor.markdown === '**hi*', '撤销：回退一步', editor.markdown)
   editor.redo()
   check(editor.markdown === '**hi**', '撤销：重做', editor.markdown)
+}
+
+{
+  // 换文档（弹窗里翻页）之后，撤销不会把上一个文档的内容恢复出来
+  const { editor } = makeEditor()
+
+  typeAll('aaa')
+  editor.setSource('bbb')
+  check(editor.markdown === 'bbb', '撤销（换文档）：内容换成新的', editor.markdown)
+
+  editor.undo()
+  check(editor.markdown === 'bbb', '撤销（换文档）：撤销不会退回上一个文档', editor.markdown)
+
+  // 换完文档之后，这一篇自己的撤销还是正常的
+  typeAll('c')
+  check(editor.markdown === 'bbbc', '撤销（换文档）：新文档里照常输入', editor.markdown)
+  editor.undo()
+  check(editor.markdown === 'bbb', '撤销（换文档）：新文档里也能撤销', editor.markdown)
 }
 
 // ---------------------------------------------------------------- 回车 / 粘贴 / 选区
@@ -635,6 +660,265 @@ function insertComposingText(text: string): Text {
     }),
   )
   check(editor.markdown === '', '全选：删除后内容清空', JSON.stringify(editor.markdown))
+}
+
+// ---------------------------------------------------------------- 双向链接
+
+/** 造一个页面仓库的替身 */
+function makeLinkProvider(titles: string[] = []): {
+  provider: LinkProvider
+  created: string[]
+  store: Map<string, string>
+} {
+  const store = new Map<string, string>()
+  for (const title of titles) store.set(title, '')
+  const created: string[] = []
+
+  const provider: LinkProvider = {
+    suggest: (query) => {
+      const keyword = query.trim().toLowerCase()
+      return [...store.keys()]
+        .filter((title) => !keyword || title.toLowerCase().includes(keyword))
+        .map((title) => ({ title, preview: '', exists: true }))
+    },
+    create: (title) => {
+      created.push(title)
+      store.set(title, '')
+    },
+    exists: (title) => store.has(title),
+  }
+
+  return { provider, created, store }
+}
+
+{
+  // 输入 [[ 就弹出候选窗口；一个页面都没有时候选是空的
+  const { provider } = makeLinkProvider()
+  const { editor } = makeEditor({ links: provider })
+
+  type('[')
+  check(editor.suggestion === null, '链接：只有一个 [ 不弹窗口')
+
+  type('[')
+  check(editor.suggestion !== null, '链接：输入 [[ 弹出候选窗口')
+  check(editor.suggestion?.query === '', '链接：刚输入时查询词为空', JSON.stringify(editor.suggestion?.query))
+  check(editor.suggestion?.candidates.length === 0, '链接：没有页面时没有候选')
+  check(editor.suggestion?.rect !== null, '链接：候选窗口知道光标的位置')
+}
+
+{
+  // 输入 [[hello 回车：创建页面并补全成 [[hello]]
+  const { provider, created } = makeLinkProvider()
+  const { root, editor } = makeEditor({ links: provider })
+
+  typeAll('[[')
+  typeAll('hello')
+
+  const state = editor.suggestion
+  check(state?.candidates.length === 1, '链接：没有同名页面时只有一项候选', String(state?.candidates.length))
+  check(state?.candidates[0]?.title === 'hello', '链接：候选项是输入的内容', state?.candidates[0]?.title)
+  check(state?.candidates[0]?.exists === false, '链接：候选项表示新建页面')
+  check(state?.selected === 0, '链接：默认高亮第一项')
+
+  press('Enter')
+  check(editor.markdown === '[[hello]]', '链接：回车补全成 [[hello]]', JSON.stringify(editor.markdown))
+  check(created.length === 1 && created[0] === 'hello', '链接：回车创建了页面', JSON.stringify(created))
+  check(editor.suggestion === null, '链接：接受候选后窗口关闭')
+  check(root.querySelector('a[data-md-link]') !== null, '链接：渲染成可点击的链接', tag(root))
+  check(visible(root) === 'hello', '链接：显示页面名', JSON.stringify(visible(root)))
+  check(
+    root.querySelector('a[data-md-link]')?.getAttribute('data-page') === 'hello',
+    '链接：链接上带着页面名',
+    tag(root),
+  )
+}
+
+{
+  // 已经有同名页面时，候选里是那个页面，回车不会再创建
+  const { provider, created } = makeLinkProvider(['hello'])
+  const { editor } = makeEditor({ links: provider })
+
+  typeAll('[[')
+  typeAll('hello')
+
+  check(editor.suggestion?.candidates.length === 1, '链接：同名页面只有一项候选', String(editor.suggestion?.candidates.length))
+  check(editor.suggestion?.candidates[0]?.exists === true, '链接：候选项是已有页面')
+
+  press('Enter')
+  check(editor.markdown === '[[hello]]', '链接：回车补全成 [[hello]]', JSON.stringify(editor.markdown))
+  check(created.length === 0, '链接：同名页面不会被重复创建', JSON.stringify(created))
+}
+
+{
+  // 候选列表会跟着查询词过滤
+  const { provider } = makeLinkProvider(['hello', 'help', 'world'])
+  const { editor } = makeEditor({ links: provider })
+
+  typeAll('[[')
+  check(editor.suggestion?.candidates.length === 3, '链接：空查询时列出所有页面', String(editor.suggestion?.candidates.length))
+  check(editor.suggestion?.selected === 0, '链接：空查询时高亮第一项', String(editor.suggestion?.selected))
+
+  typeAll('hel')
+  check(editor.suggestion?.candidates.length === 3, '链接：查询词会带上新建选项', String(editor.suggestion?.candidates.length))
+  check(editor.suggestion?.candidates[0]?.exists === false, '链接：新建选项排在最前面')
+  check(editor.suggestion?.candidates[1]?.title === 'hello', '链接：匹配的页面排在后面', editor.suggestion?.candidates[1]?.title)
+}
+
+{
+  // 窗口开着的时候，回车选中的就是看到的那一项
+  const { provider } = makeLinkProvider(['hello'])
+  const { editor } = makeEditor({ links: provider })
+
+  typeAll('[[')
+  press('Enter')
+  check(editor.markdown === '[[hello]]', '链接：空查询时回车选中第一项', JSON.stringify(editor.markdown))
+}
+
+{
+  // 上下键切换候选项，回车选中高亮的那一个
+  const { provider, created } = makeLinkProvider(['hello', 'help'])
+  const { editor } = makeEditor({ links: provider })
+
+  typeAll('[[')
+  check(editor.suggestion?.selected === 0, '链接：默认高亮第一项', String(editor.suggestion?.selected))
+
+  press('ArrowDown')
+  check(editor.suggestion?.selected === 1, '链接：下键切到第二项', String(editor.suggestion?.selected))
+  press('ArrowUp')
+  check(editor.suggestion?.selected === 0, '链接：上键回到第一项', String(editor.suggestion?.selected))
+
+  // 到头会绕回来
+  press('ArrowUp')
+  check(editor.suggestion?.selected === 1, '链接：上键到头会绕到最后一项', String(editor.suggestion?.selected))
+
+  press('ArrowUp')
+  press('Enter')
+  check(editor.markdown === '[[hello]]', '链接：回车接受高亮的候选项', JSON.stringify(editor.markdown))
+  check(created.length === 0, '链接：已有页面不会被重复创建', JSON.stringify(created))
+}
+
+{
+  // Esc 关掉窗口，之后继续输入也不会再弹出来
+  const { provider } = makeLinkProvider()
+  const { editor } = makeEditor({ links: provider })
+
+  typeAll('[[')
+  check(editor.suggestion !== null, '链接（Esc）：先弹出窗口')
+
+  press('Escape')
+  check(editor.suggestion === null, '链接（Esc）：窗口关掉了')
+
+  typeAll('hello')
+  check(editor.suggestion === null, '链接（Esc）：继续输入也不会再弹出来')
+}
+
+{
+  // 点击链接：打开对应的页面
+  const { provider } = makeLinkProvider()
+  let opened: string | null = null
+  const { root } = makeEditor({
+    links: provider,
+    onOpenPage: (title) => {
+      opened = title
+    },
+  })
+
+  typeAll('[[')
+  typeAll('hello')
+  press('Enter')
+  check(opened === null, '链接（点击）：输入的时候不会打开页面')
+
+  const link = root.querySelector('a[data-md-link]')!
+  link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  check(opened === 'hello', '链接（点击）：点击链接打开页面', String(opened))
+}
+
+{
+  // 链接也可以在加粗和标题里
+  const { provider } = makeLinkProvider()
+  const { root, editor } = makeEditor({ links: provider })
+
+  typeAll('**')
+  typeAll('[[')
+  typeAll('hello')
+  press('Enter')
+  typeAll('**')
+  check(editor.markdown === '**[[hello]]**', '链接：加粗里的链接', JSON.stringify(editor.markdown))
+  check(root.querySelector('strong a[data-md-link]') !== null, '链接：渲染在加粗里面', tag(root))
+}
+
+{
+  // 代码里的 [[ 不弹窗口
+  const { provider } = makeLinkProvider()
+  const { editor } = makeEditor({ links: provider })
+
+  typeAll('`')
+  typeAll('[[')
+  check(editor.suggestion === null, '链接：代码里的 [[ 不弹窗口')
+}
+
+{
+  // 编辑区失去焦点，候选窗口就关掉
+  const { provider } = makeLinkProvider()
+  const { root, editor } = makeEditor({ links: provider })
+
+  typeAll('[[')
+  check(editor.suggestion !== null, '链接（失焦）：先弹出窗口')
+
+  root.dispatchEvent(new FocusEvent('blur'))
+  check(editor.suggestion === null, '链接（失焦）：失焦后窗口关掉了')
+}
+
+{
+  // 断链：页面还不存在的链接要标出来
+  const { provider } = makeLinkProvider()
+  const { root, editor } = makeEditor({ links: provider })
+
+  typeAll('[[ghost]]')
+  const link = root.querySelector('a[data-md-link]')
+  check(link !== null, '断链：写出来的链接渲染成链接', tag(root))
+  check(link?.classList.contains('is-missing') === true, '断链：页面不存在时标成断链', tag(root))
+  check(
+    link?.getAttribute('title') === '页面「ghost」还不存在',
+    '断链：鼠标停上去有提示',
+    link?.getAttribute('title') ?? '',
+  )
+
+  // 页面有了，就不再是断链
+  provider.create('ghost')
+  editor.refreshLinks()
+  check(link?.classList.contains('is-missing') === false, '断链：页面有了之后不再是断链', tag(root))
+  check(
+    link?.getAttribute('title') === '打开页面「ghost」',
+    '断链：页面有了之后提示也跟着变',
+    link?.getAttribute('title') ?? '',
+  )
+}
+
+{
+  // 光标停在链接里，Cmd+Enter 就能打开这个页面
+  const { provider } = makeLinkProvider()
+  let opened: string | null = null
+  const { root } = makeEditor({
+    links: provider,
+    onOpenPage: (title) => {
+      opened = title
+    },
+  })
+
+  typeAll('[[hello]]')
+  const link = root.querySelector('a[data-md-link]')!
+
+  // 把光标放到链接里面
+  const range = document.createRange()
+  range.setStart(link.firstChild!, 1)
+  range.collapse(true)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  press('Enter', { metaKey: true })
+  check(opened === 'hello', '链接（快捷键）：Cmd+Enter 打开光标处的页面', String(opened))
 }
 
 // ---------------------------------------------------------------- 输出
