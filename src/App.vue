@@ -1,28 +1,20 @@
 <script setup lang="ts">
-import { computed, shallowRef, useTemplateRef } from 'vue'
-import MarkdownEditor from './components/MarkdownEditor.vue'
-import MarkdownPreview from './components/MarkdownPreview.vue'
-import type { FormatAction } from './lib/format'
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import DocBlock from './components/DocBlock.vue'
+import { blockKind, splitBlocks } from './lib/blocks'
+import { md } from './lib/markdown'
 import { DEFAULT_SOURCE } from './lib/sample'
 
 const source = shallowRef(DEFAULT_SOURCE)
 
-const editorRef = useTemplateRef<InstanceType<typeof MarkdownEditor>>('editor')
-const previewRef = useTemplateRef<InstanceType<typeof MarkdownPreview>>('preview')
+/** 正在编辑的块下标，null 表示没有块处于编辑状态 */
+const editingIndex = ref<number | null>(null)
+/** 进入编辑状态时光标应落在的偏移 */
+const pendingCaret = ref<number | null>(null)
 
-const toolbar: { action: FormatAction; label: string; title: string }[] = [
-  { action: 'heading', label: 'H1', title: '标题' },
-  { action: 'bold', label: 'B', title: '加粗 (⌘/Ctrl + B)' },
-  { action: 'italic', label: 'I', title: '斜体 (⌘/Ctrl + I)' },
-  { action: 'strikethrough', label: 'S', title: '删除线' },
-  { action: 'code', label: 'Code', title: '行内代码' },
-  { action: 'codeBlock', label: 'Code Block', title: '代码块' },
-  { action: 'link', label: 'Link', title: '链接' },
-  { action: 'bulletList', label: '• List', title: '无序列表' },
-  { action: 'orderedList', label: '1. List', title: '有序列表' },
-  { action: 'quote', label: 'Quote', title: '引用' },
-  { action: 'hr', label: 'HR', title: '分割线' },
-]
+const blocks = computed(() => splitBlocks(source.value))
+const kinds = computed(() => blocks.value.map((block) => blockKind(block.raw)))
+const rendered = computed(() => blocks.value.map((block) => md.render(block.raw)))
 
 const stats = computed(() => {
   const text = source.value
@@ -35,63 +27,79 @@ const stats = computed(() => {
 
   return {
     words: cjk + latin,
-    chars: text.length,
     lines: text.split('\n').length,
   }
 })
 
-/** 两栏按比例联动滚动；用时间戳避免相互触发形成回环 */
-let lastSync = 0
-function syncScroll(from: 'editor' | 'preview') {
-  const now = Date.now()
-  if (now - lastSync < 150) return
-
-  const src = from === 'editor' ? editorRef.value?.getScroller() : previewRef.value?.getScroller()
-  const dst = from === 'editor' ? previewRef.value?.getScroller() : editorRef.value?.getScroller()
-  if (!src || !dst) return
-
-  const max = src.scrollHeight - src.clientHeight
-  const ratio = max > 0 ? src.scrollTop / max : 0
-  dst.scrollTop = ratio * (dst.scrollHeight - dst.clientHeight)
-  lastSync = now
+function startEdit(index: number, caret: number | null) {
+  editingIndex.value = index
+  pendingCaret.value = caret
 }
+
+function updateBlock(index: number, raw: string) {
+  const block = blocks.value[index]
+  if (!block || block.raw === raw) return
+  source.value = source.value.slice(0, block.start) + raw + source.value.slice(block.end)
+}
+
+function splitBlock(index: number, caret: number) {
+  const block = blocks.value[index]
+  if (!block) return
+
+  const before = block.raw.slice(0, caret)
+  const after = block.raw.slice(caret)
+  source.value =
+    source.value.slice(0, block.start) + before + '\n\n' + after + source.value.slice(block.end)
+
+  editingIndex.value = index + 1
+  pendingCaret.value = 0
+}
+
+function exitEdit() {
+  editingIndex.value = null
+}
+
+/**
+ * 点击文档以外的区域时退出编辑。
+ *
+ * 注意：这里必须用 composedPath() 判断，事件冒泡到 document 时 Vue 可能已经
+ * 把点击到的节点从 DOM 中卸载，此时 event.target 已经脱离文档树。
+ */
+function onDocumentMouseDown(event: MouseEvent) {
+  const path = event.composedPath()
+  const inside = path.some(
+    (node) => node instanceof HTMLElement && node.hasAttribute('data-doc-block'),
+  )
+  if (inside) return
+  editingIndex.value = null
+}
+
+onMounted(() => document.addEventListener('mousedown', onDocumentMouseDown))
+onUnmounted(() => document.removeEventListener('mousedown', onDocumentMouseDown))
 </script>
 
 <template>
-  <div class="app">
-    <header class="topbar">
-      <h1 class="app-title">mdoc</h1>
-      <div class="stats">
-        <span>{{ stats.words }} 字</span>
-        <span>{{ stats.chars }} 字符</span>
-        <span>{{ stats.lines }} 行</span>
-      </div>
-    </header>
-
-    <div class="toolbar">
-      <button
-        v-for="item in toolbar"
-        :key="item.action"
-        type="button"
-        class="tool"
-        :title="item.title"
-        @click="editorRef?.applyFormat(item.action)"
-      >
-        {{ item.label }}
-      </button>
-      <span class="toolbar-hint">⌘/Ctrl + B 加粗 · ⌘/Ctrl + I 斜体</span>
+  <main class="doc">
+    <div
+      v-for="(block, index) in blocks"
+      :key="index"
+      class="block"
+      :class="[`kind-${kinds[index]}`, { 'is-editing': editingIndex === index }]"
+      data-doc-block
+    >
+      <DocBlock
+        :index="index"
+        :raw="block.raw"
+        :html="rendered[index] ?? ''"
+        :editing="editingIndex === index"
+        :caret="pendingCaret"
+        @edit="startEdit"
+        @update="updateBlock"
+        @split="splitBlock"
+        @exit="exitEdit"
+      />
     </div>
+  </main>
 
-    <main class="panes">
-      <section class="pane">
-        <div class="pane-head">Markdown</div>
-        <MarkdownEditor ref="editor" v-model="source" @scroll="syncScroll('editor')" />
-      </section>
-
-      <section class="pane">
-        <div class="pane-head">预览</div>
-        <MarkdownPreview ref="preview" :source="source" @scroll="syncScroll('preview')" />
-      </section>
-    </main>
-  </div>
+  <div class="status">mdoc · {{ stats.words }} 字 · {{ stats.lines }} 行</div>
 </template>
