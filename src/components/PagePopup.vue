@@ -10,7 +10,7 @@ import type { LinkProvider } from '../core/types'
 import MarkdownEditor from './MarkdownEditor.vue'
 
 defineProps<{
-  /** 页面标题 */
+  /** 页面标题（界面上不显示，只用作弹窗的无障碍名称） */
   title: string
   /** 页面正文（Markdown 源码） */
   content: string
@@ -50,9 +50,10 @@ onBeforeUnmount(() => {
 <template>
   <div class="popup-mask" @click.self="emit('close')">
     <div class="popup" role="dialog" aria-modal="true" :aria-label="title">
+      <!-- 弹窗不显示标题：页面名在正文里就能看见，标题栏只留操作按钮 -->
       <header class="popup-head">
+        <!-- 返回只在真的能回去时才出现（第一层没有上一层可回） -->
         <button v-if="canGoBack" class="popup-back" type="button" @click="emit('back')">返回</button>
-        <h2 class="popup-title">{{ title }}</h2>
         <button class="popup-close" type="button" @click="emit('close')">关闭</button>
       </header>
 

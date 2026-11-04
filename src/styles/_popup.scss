@@ -22,26 +22,22 @@
   @include m.panel(14px, 24px, 64px);
 }
 
+// 标题栏：只有操作按钮（返回 / 关闭），不显示页面标题
 .popup-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.popup-title {
-  flex: 1;
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  @include m.ellipsis;
 }
 
 .popup-back,
 .popup-close,
 .popup-create {
   @include m.button;
+}
+
+// 关闭按钮固定在右边：没有「返回」按钮时它也不会跑到左边
+.popup-close {
+  margin-left: auto;
 }
 
 .popup-missing {

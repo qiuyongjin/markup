@@ -1043,6 +1043,110 @@ function makeLinkProvider(titles: string[] = []): {
 }
 
 {
+  // 弹窗头部：不显示页面标题，只有「关闭」；
+  // 「返回」只在真的能返回（有上一层）时才出现。
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const app = createApp(App)
+  app.mount(host)
+
+  const bodyEditor = host.querySelector('.editor') as HTMLElement
+  activeRoot = bodyEditor
+  bodyEditor.focus()
+  typeAll('[[第一页]]')
+
+  const link = bodyEditor.querySelector('a[data-md-link]') as HTMLElement
+  link.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+
+  const popup = host.querySelector('.popup') as HTMLElement
+  h.check(popup !== null, '弹窗：点链接弹出页面弹窗')
+
+  const head = popup.querySelector('.popup-head') as HTMLElement
+
+  // 头部不显示页面标题
+  h.check(head.querySelector('.popup-title') === null, '弹窗：标题栏里没有标题', tag(head))
+  h.check(
+    !(head.textContent ?? '').includes('第一页'),
+    '弹窗：标题栏里不出现页面名',
+    head.textContent ?? '',
+  )
+  // 标题不显示了，但弹窗的无障碍名称还在（读屏软件仍能知道这是哪个页面）
+  h.check(
+    popup.getAttribute('aria-label') === '第一页',
+    '弹窗：aria-label 保留页面名',
+    popup.getAttribute('aria-label') ?? '',
+  )
+
+  // 第一层没有上一层可回：「返回」不出现
+  h.check(head.querySelector('.popup-back') === null, '弹窗：第一层没有「返回」按钮', tag(head))
+  h.check(head.querySelector('.popup-close') !== null, '弹窗：有「关闭」按钮', tag(head))
+
+  // 「关闭」靠右（没有「返回」时也不会跑到左边）
+  const headRect = head.getBoundingClientRect()
+  const closeRect = (head.querySelector('.popup-close') as HTMLElement).getBoundingClientRect()
+  h.check(
+    Math.abs(headRect.right - closeRect.right) < 2,
+    '弹窗：「关闭」按钮靠右',
+    `head.right=${headRect.right} close.right=${closeRect.right}`,
+  )
+
+  // 在弹窗里再点一个链接：有上一层了，「返回」出现
+  const popupEditor = popup.querySelector('.editor') as HTMLElement
+  activeRoot = popupEditor
+  popupEditor.focus()
+  typeAll('[[第二页]]')
+
+  const innerLink = popupEditor.querySelector('a[data-md-link]') as HTMLElement
+  h.check(innerLink !== null, '弹窗：弹窗里的链接渲染出来了', tag(popupEditor))
+  innerLink.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+
+  const popup2 = host.querySelector('.popup') as HTMLElement
+  const head2 = popup2.querySelector('.popup-head') as HTMLElement
+  h.check(head2.querySelector('.popup-back') !== null, '弹窗：跳到第二层后出现「返回」', tag(head2))
+  h.check(head2.querySelector('.popup-close') !== null, '弹窗：第二层也有「关闭」', tag(head2))
+  h.check(
+    !(head2.textContent ?? '').includes('第二页'),
+    '弹窗：第二层也不显示页面名',
+    head2.textContent ?? '',
+  )
+
+  // 「返回」靠左
+  const head2Rect = head2.getBoundingClientRect()
+  const backRect = (head2.querySelector('.popup-back') as HTMLElement).getBoundingClientRect()
+  h.check(
+    Math.abs(head2Rect.left - backRect.left) < 2,
+    '弹窗：「返回」按钮靠左',
+    `head.left=${head2Rect.left} back.left=${backRect.left}`,
+  )
+
+  // 点「返回」回到第一层，「返回」又消失
+  ;(head2.querySelector('.popup-back') as HTMLElement).dispatchEvent(
+    new MouseEvent('click', { bubbles: true }),
+  )
+  await nextTick()
+
+  const popup3 = host.querySelector('.popup') as HTMLElement
+  const head3 = popup3.querySelector('.popup-head') as HTMLElement
+  h.check(
+    head3.querySelector('.popup-back') === null,
+    '弹窗：回到第一层后「返回」消失',
+    tag(head3),
+  )
+  h.check(
+    popup3.getAttribute('aria-label') === '第一页',
+    '弹窗：返回后回到第一页',
+    popup3.getAttribute('aria-label') ?? '',
+  )
+
+  app.unmount()
+  host.remove()
+  removePage('第一页')
+  removePage('第二页')
+}
+
+{
   // 内容所有权契约：外部拥有内容时，靠版本号判断变更来源
   const { editor } = makeEditor({ ownership: 'controlled', externalVersion: 1 })
 
