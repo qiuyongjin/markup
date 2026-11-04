@@ -85,9 +85,11 @@ test/
 └── build.mjs                      # 打包浏览器测试脚本
 
 docs/
-└── implementation.md              # 技术实现文档
+├── implementation.md              # 技术实现文档
+└── architecture.md                # 架构评审与调整方案
 ```
 
 ## 文档
 
 - [技术实现](docs/implementation.md) —— 解析规则、编辑模型、光标映射、双向链接与测试方案
+- [架构评审](docs/architecture.md) —— 分层与依赖、模块职责、性能实测、分阶段调整路线
