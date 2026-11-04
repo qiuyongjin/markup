@@ -1,0 +1,8 @@
+# pnpm 的项目级设置（pnpm 12）。
+#
+# pnpm 10 起默认拦截依赖的安装脚本（postinstall 等），
+# 本地只是警告，CI 里会直接让 `pnpm install` 失败（ERR_PNPM_IGNORED_BUILDS）。
+# @parcel/watcher 需要构建原生模块，所以在这里显式批准它 ——
+# 批准哪个包要写清楚，不要用「全部批准」糊弄过去。
+allowBuilds:
+  '@parcel/watcher': true
