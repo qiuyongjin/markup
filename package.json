@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "node test/parser.test.ts && node test/store.test.ts && node test/text.test.ts && node test/history.test.ts && node test/architecture.test.ts",
+    "test": "node test/parser.test.ts && node test/welcome.test.ts && node test/store.test.ts && node test/text.test.ts && node test/history.test.ts && node test/architecture.test.ts",
     "test:browser": "node test/build.mjs",
     "test:perf": "node test/perf.ts"
   },

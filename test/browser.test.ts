@@ -11,6 +11,7 @@ import { parseMarkdown } from '../src/markdown/parser'
 import { createApp, nextTick } from 'vue'
 import App from '../src/App.vue'
 import { removePage } from '../src/pages/store'
+import { EXAMPLE_PAGE_TITLE } from '../src/pages/welcome'
 import { createHarness } from './harness'
 
 const lines: string[] = []
@@ -63,6 +64,17 @@ function visible(root: HTMLElement): string {
 
 function tag(root: HTMLElement): string {
   return root.innerHTML.replace(/ data-md(-end)?="[^"]*"/g, '')
+}
+
+/**
+ * 编辑区里的最后一个链接。
+ *
+ * 首页默认文档自带一个链接，测试要的是**刚输入的那个** ——
+ * 它排在文档末尾，所以取最后一个。
+ */
+function lastLink(root: HTMLElement): HTMLElement | null {
+  const links = root.querySelectorAll('a[data-md-link]')
+  return (links[links.length - 1] as HTMLElement | undefined) ?? null
 }
 
 /** 内容排了几行（按不同的行顶算） */
@@ -922,6 +934,90 @@ function makeLinkProvider(titles: string[] = []): {
   h.check(opened === 'hello', '链接（快捷键）：Cmd+Enter 打开光标处的页面', String(opened))
 }
 
+{
+  // 已经写完的链接不再触发候选窗口：
+  // 用户点进链接里改页面名时，不该弹出一个「新建页面」的窗口。
+  const { provider } = makeLinkProvider()
+  const { root, editor } = makeEditor({ links: provider })
+
+  typeAll('[[hello]]')
+  const link = root.querySelector('a[data-md-link]')!
+
+  // 把光标放到链接里面（页面名的中间）
+  const range = document.createRange()
+  range.setStart(link.firstChild!, 2)
+  range.collapse(true)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  type('x')
+  h.check(
+    editor.suggestion === null,
+    '链接（已写完）：光标在链接里时不弹候选窗口',
+    JSON.stringify(editor.suggestion?.query ?? ''),
+  )
+  h.check(editor.markdown === '[[hexllo]]', '链接（已写完）：字照常插进页面名里', editor.markdown)
+}
+
+// ---------------------------------------------------------------- 首页默认文档（App 级别）
+
+{
+  // 首页不是一片空白：预置了一份默认文档，简单介绍 Markup 支持的语法和功能。
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const app = createApp(App)
+  app.mount(host)
+
+  const bodyEditor = host.querySelector('.editor') as HTMLElement
+  h.check(
+    (bodyEditor.textContent ?? '').includes('欢迎使用 Markup'),
+    '首页：默认文档显示出来了',
+    visible(bodyEditor).slice(0, 30),
+  )
+  h.check(bodyEditor.querySelector('h1') !== null, '首页：默认文档里的标题渲染成标题', tag(bodyEditor))
+  h.check(bodyEditor.querySelector('strong') !== null, '首页：默认文档里的加粗生效了')
+  h.check(bodyEditor.querySelector('code') !== null, '首页：默认文档里的行内代码生效了')
+
+  // 默认文档里有一个**能点的**链接，指向预置好的示例页面
+  const welcomeLink = bodyEditor.querySelector('a[data-md-link]') as HTMLElement | null
+  h.check(welcomeLink !== null, '首页：默认文档里有一个真链接', tag(bodyEditor))
+  h.check(
+    welcomeLink?.getAttribute('data-page') === EXAMPLE_PAGE_TITLE,
+    '首页：链接指向示例页面',
+    welcomeLink?.getAttribute('data-page') ?? '',
+  )
+  h.check(
+    welcomeLink?.classList.contains('is-missing') === false,
+    '首页：示例页面已经预置，链接不是断链',
+    tag(bodyEditor),
+  )
+
+  // 点它：弹出示例页面，页面正文能看见
+  welcomeLink?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await nextTick()
+
+  const popup = host.querySelector('.popup') as HTMLElement
+  h.check(popup !== null, '首页：点链接弹出页面弹窗')
+  const popupEditor = popup?.querySelector('.editor') as HTMLElement
+  h.check(
+    (popupEditor?.textContent ?? '').includes('你现在在另一个页面里'),
+    '首页：弹窗里是示例页面的内容',
+    visible(popupEditor ?? document.createElement('div')).slice(0, 30),
+  )
+  // 示例页面里还有一个没写过的页面：点它能看到「创建页面」
+  const innerLink = popupEditor?.querySelector('a[data-md-link]') as HTMLElement | null
+  h.check(innerLink !== null, '首页：示例页面里还有一个链接', tag(popupEditor ?? document.createElement('div')))
+  h.check(
+    innerLink?.classList.contains('is-missing') === true,
+    '首页：还没写的页面显示成断链',
+    tag(popupEditor ?? document.createElement('div')),
+  )
+
+  app.unmount()
+  host.remove()
+}
+
 // ---------------------------------------------------------------- 草稿回显（App 级别）
 
 {
@@ -938,7 +1034,7 @@ function makeLinkProvider(titles: string[] = []): {
   bodyEditor.focus()
   typeAll('[[草稿页]]')
 
-  const link = bodyEditor.querySelector('a[data-md-link]') as HTMLElement
+  const link = lastLink(bodyEditor) as HTMLElement
   h.check(link !== null, '草稿：正文里的链接渲染出来了', tag(bodyEditor))
   link.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
@@ -993,7 +1089,7 @@ function makeLinkProvider(titles: string[] = []): {
 
   // 页面建好了，正文里的链接不再是断链
   await nextTick()
-  const linkAfter = bodyEditor.querySelector('a[data-md-link]') as HTMLElement
+  const linkAfter = lastLink(bodyEditor) as HTMLElement
   h.check(
     linkAfter.classList.contains('is-missing') === false,
     '草稿：页面建好后，链接不再是断链',
@@ -1018,7 +1114,7 @@ function makeLinkProvider(titles: string[] = []): {
   bodyEditor.focus()
   typeAll('[[候选页]]')
 
-  const link = bodyEditor.querySelector('a[data-md-link]') as HTMLElement
+  const link = lastLink(bodyEditor) as HTMLElement
   link.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
 
@@ -1055,7 +1151,7 @@ function makeLinkProvider(titles: string[] = []): {
   bodyEditor.focus()
   typeAll('[[第一页]]')
 
-  const link = bodyEditor.querySelector('a[data-md-link]') as HTMLElement
+  const link = lastLink(bodyEditor) as HTMLElement
   link.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
 

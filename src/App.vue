@@ -2,6 +2,9 @@
 /**
  * 首页：整页就是一个编辑区。
  *
+ * 编辑区里预置了一份默认文档：简单介绍 Markup 支持的语法与功能，
+ * 用户可以直接改，也可以整篇删掉。
+ *
  * 点击 `[[页面名]]` 里的页面名会弹出页面弹窗，
  * 弹窗里可以继续编辑页面，也可以点页面里的链接跳到别的页面。
  */
@@ -10,9 +13,21 @@ import type { LinkProvider } from './core/types'
 import MarkdownEditor from './components/MarkdownEditor.vue'
 import PagePopup from './components/PagePopup.vue'
 import { createPage, defaultLinkProvider, draftOf, getPage, saveDraft, updatePage } from './pages/store'
+import { EXAMPLE_PAGE_CONTENT, EXAMPLE_PAGE_TITLE, WELCOME_MARKDOWN } from './pages/welcome'
 import type { EditorStats } from './editor/types'
 
 const editor = ref<InstanceType<typeof MarkdownEditor> | null>(null)
+
+/**
+ * 预置示例页面。
+ *
+ * 首页默认文档里有一个真链接指向它，用户点一下就能打开一个页面 ——
+ * 不用先自己建一个，才能体验到「链接 → 弹窗 → 页面里还能继续链」的完整路径。
+ *
+ * 页面只存在内存里，所以这个示例页面也一样：刷新就没了。
+ * 已经存在时不覆盖（同名页面可能已经被用户改过）。
+ */
+createPage(EXAMPLE_PAGE_TITLE, EXAMPLE_PAGE_CONTENT)
 
 /**
  * 性能 HUD：只在 dev 下挂载。
@@ -109,6 +124,7 @@ function createCurrent(): void {
   <main class="page" @click.self="focusEditor">
     <MarkdownEditor
       ref="editor"
+      :model-value="WELCOME_MARKDOWN"
       :links="links"
       @stats="stats = $event"
       @open-page="openPage"

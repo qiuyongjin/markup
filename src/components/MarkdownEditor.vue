@@ -101,7 +101,10 @@ onMounted(() => {
       emit('update:modelValue', source)
     },
   })
-  if (props.modelValue) controller.setSource(props.modelValue)
+  // 初次载入内容时**不**把光标滚进视口：
+  // 初始内容（首页的默认文档）从视口上方开始，光标却在末尾，
+  // 跟着光标滚会把文档开头（标题）滚出视口。
+  if (props.modelValue) controller.setSource(props.modelValue, props.modelValue.length, false)
   if (props.autofocus) controller.focus()
 })
 

@@ -148,20 +148,37 @@ export class MarkdownEditor {
     this.markMissingLinks()
   }
 
+  /**
+   * 聚焦编辑区。
+   *
+   * 焦点回到编辑区时，光标要回到原来的位置 —— 但**不动视图**：
+   * 恢复焦点不是移动光标，视图只跟着真正的操作走（打字、撤销、翻页）。
+   * 首页预置了长文档、光标又在文末，跟着光标滚会把用户正在读的位置弄乱。
+   */
   focus(): void {
-    this.root.focus()
+    // preventScroll：编辑器比视口高，浏览器默认会把它滚进视口 ——
+    // 那等于把用户一下子拉到文档开头。
+    this.root.focus({ preventScroll: true })
     // 焦点回到编辑区时，光标要回到原来的位置
-    this.writeCaretOffset(this.caretOffset)
+    this.writeCaretOffset(this.caretOffset, false)
   }
 
-  /** 用新的内容替换整个文档（页面弹窗切换页面时用） */
-  setSource(source: string, caret = source.length): void {
+  /**
+   * 用新的内容替换整个文档（页面弹窗切换页面时用）。
+   *
+   * @param source 新内容
+   * @param caret 光标落在源码的哪个位置
+   * @param keepVisible 是否把光标滚进视口。
+   *   载入初始内容时传 false：初始内容从视口上方开始，光标却在末尾，
+   *   跟着光标滚会把文档开头（标题）滚出视口。
+   */
+  setSource(source: string, caret = source.length, keepVisible = true): void {
     this.source = source
     // 换文档就是换了一篇内容，历史记录重新开始：
     // 否则撤销会把上一页的内容恢复出来（弹窗里翻页时尤其明显）。
     this.history.reset(source, caret)
     this.render()
-    this.writeCaretOffset(Math.min(caret, source.length))
+    this.writeCaretOffset(Math.min(caret, source.length), keepVisible)
     this.options.onChange?.(this.source)
     this.updateSuggestion()
   }
@@ -203,8 +220,13 @@ export class MarkdownEditor {
     return { start: Math.min(start, end), end: Math.max(start, end) }
   }
 
-  /** 把光标移动到源码的指定偏移 */
-  private writeCaretOffset(offset: number): void {
+  /**
+   * 把光标移动到源码的指定偏移。
+   *
+   * @param keepVisible 是否把光标滚进视口。
+   *   光标真的动了才滚（打字、撤销、翻页）；恢复焦点时不动视图。
+   */
+  private writeCaretOffset(offset: number, keepVisible = true): void {
     const position = positionForSourceOffset(this.root, offset)
     const range = document.createRange()
     try {
@@ -221,7 +243,7 @@ export class MarkdownEditor {
     selection?.addRange(range)
 
     this.caretOffset = offset
-    this.keepCaretVisible(range)
+    if (keepVisible) this.keepCaretVisible(range)
   }
 
   /** 选中源码的某个区间 */
@@ -439,6 +461,7 @@ export class MarkdownEditor {
    *   - 后面跟着 `]` 说明已经闭合了，不是触发点
    *   - 后面跟着 `[` 说明是 `[[[`，也不是触发点
    *   - 中间有换行说明链接不跨行，也不是触发点
+   *   - 已经是一个写完的链接（`[[页面名]]`），也不是触发点
    */
   private findTrigger(caret: number): number | null {
     const text = this.source
@@ -448,9 +471,26 @@ export class MarkdownEditor {
       if (query.includes(']')) continue
       if (query.includes('[')) continue
       if (query.includes('\n')) return null
+      // 光标停在已经写完的链接里：用户是在改页面名，不是在新建链接
+      if (this.isClosedLink(index)) continue
       return index
     }
     return null
+  }
+
+  /**
+   * 这个 `[[` 是不是已经写完的链接。
+   *
+   * 规则和解析器一致（页面名是纯文本）：`[[` 与 `]]` 之间的内容里
+   * 不能出现方括号、反引号或换行。
+   */
+  private isClosedLink(index: number): boolean {
+    const contentStart = index + LINK_OPEN.length
+    const close = this.source.indexOf(LINK_CLOSE, contentStart)
+    if (close === -1) return false
+    const content = this.source.slice(contentStart, close)
+    if (!content) return false
+    return !/[[\]`]/.test(content) && !content.includes('\n')
   }
 
   /**
