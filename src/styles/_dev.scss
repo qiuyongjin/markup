@@ -4,7 +4,7 @@
 
 .dev-stats {
   position: fixed;
-  right: 12px;
+  left: 50%;
   bottom: 12px;
   z-index: 20;
   display: flex;
@@ -17,4 +17,6 @@
   color: var(--muted);
   font: 12px/1.4 t.$font-mono;
   pointer-events: none;
+  // 水平居中：left 走一半，再用 transform 拉回来
+  transform: translateX(-50%);
 }
