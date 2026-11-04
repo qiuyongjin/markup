@@ -61,10 +61,10 @@ components/  ──►  editor/  ──►  markdown/
 
 - `core/logger.ts` 定义可注入的 `Logger`，默认 `noopLogger`（生产环境什么都不记）；
 - 开发环境由 `MarkdownEditor.vue` 注入 `consoleLogger()`；
-- 编辑器每次渲染后记一条 debug 日志（源码长度、块数、解析与渲染耗时）；
+- 编辑器每次渲染后记一条 debug 日志（源码长度、元素数、解析与渲染耗时）；
   两处原本「静默吞异常」的空 `catch`（光标定位、选区定位）现在会留下 warn 日志
   —— 保留「忽略这个异常」的语义，但不丢弃信息；
-- dev 下挂载性能 HUD（`DevStats.vue`），显示源码长度 / 块数 / 解析耗时 / 渲染耗时。
+- dev 下挂载性能 HUD（`DevStats.vue`），显示源码长度 / 元素数 / 解析耗时 / 渲染耗时。
   它用 `import.meta.env.DEV` 守卫 + 动态 import，生产构建里不进包。
 
 ## 解析器

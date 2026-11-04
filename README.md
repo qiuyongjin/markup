@@ -53,7 +53,7 @@ pnpm test:browser  # 打包浏览器端到端测试
 pnpm test:perf     # 性能回归脚本
 ```
 
-开发模式下右下角有一个性能 HUD，显示源码长度、块数、解析耗时与渲染耗时
+开发模式下右下角有一个性能 HUD，显示源码长度、元素数、解析耗时与渲染耗时
 （生产构建里不会出现）。
 
 代码风格由 ESLint 把关（`pnpm lint`）。Prettier 也配好了（`pnpm format`），

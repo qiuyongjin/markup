@@ -33,5 +33,25 @@ jobs:
       # 类型检查 + 生产构建
       - run: pnpm build
 
-      # 浏览器端到端测试的打包（需要真实浏览器才能跑断言）
+      # 性能回归：解析器不能退化回「字符数 × 标记数」
+      # 阈值很宽松，只拦数量级退化，不会因为 CI 机器抖动误报
+      - run: pnpm test:perf
+
+      # 浏览器端到端测试：先打包，再真的跑一遍
+      # runner 上预装了 google-chrome，直接用无头模式跑断言
       - run: pnpm test:browser
+
+      - name: 浏览器端到端测试
+        run: |
+          cd test/dist
+          python3 -m http.server 8931 &
+          sleep 2
+          google-chrome \
+            --headless --disable-gpu --no-sandbox \
+            --virtual-time-budget=15000 \
+            --dump-dom http://127.0.0.1:8931/index.html > result.html
+          if ! grep -q "ALL PASSED" result.html; then
+            grep -oE "FAIL[^<]*" result.html | head -20
+            exit 1
+          fi
+          echo "浏览器端到端测试通过"

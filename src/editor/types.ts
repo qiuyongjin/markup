@@ -32,8 +32,14 @@ export interface SuggestionState {
 export interface EditorStats {
   /** 源码长度（字符数） */
   length: number
-  /** 顶层块数（段落与标题） */
-  blocks: number
+  /**
+   * 顶层 token 数（解析器的输出单位）。
+   *
+   * 注意：解析器把段落摊平成行内元素，
+   * 所以这里是「元素个数」而不是「段落数」——
+   * 一段 `**加粗** 文字` 算 2 个。
+   */
+  elements: number
   /** 解析耗时（毫秒） */
   parseMs: number
   /** 渲染耗时（毫秒） */

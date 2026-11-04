@@ -63,7 +63,8 @@ const logger = import.meta.env.DEV ? consoleLogger() : noopLogger
  * 候选来源：由组合根（App.vue）注入。
  *
  * 这里**不自己去拿页面仓库** —— 依赖方向要求「页面仓库的实现」只在组合根出现，
- * 组件只认识 `LinkProvider` 这个端口。没注入就没有候选窗口（与注入前一致）。
+ * 组件只认识 `LinkProvider` 这个端口。
+ * 没注入就没有候选窗口（也不会把链接标成断链）。
  */
 
 function focusEditor(): void {

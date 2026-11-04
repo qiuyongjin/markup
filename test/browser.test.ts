@@ -1130,7 +1130,7 @@ function makeLinkProvider(titles: string[] = []): {
   typeAll('hello')
   h.check(stats !== null, '可观察：渲染后有统计信息')
   h.check(stats?.length === 5, '可观察：统计里有源码长度', String(stats?.length ?? ''))
-  h.check(stats?.blocks === 1, '可观察：统计里有块数', String(stats?.blocks ?? ''))
+  h.check(stats?.elements === 1, '可观察：统计里有元素数', String(stats?.elements ?? ''))
   h.check(typeof stats?.parseMs === 'number', '可观察：统计里有解析耗时')
   h.check(typeof stats?.renderMs === 'number', '可观察：统计里有渲染耗时')
 }

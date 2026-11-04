@@ -19,7 +19,7 @@ defineProps<{
 <template>
   <div v-if="stats" class="dev-stats">
     <span class="dev-stats-item">源码 {{ stats.length }} 字符</span>
-    <span class="dev-stats-item">{{ stats.blocks }} 块</span>
+    <span class="dev-stats-item">{{ stats.elements }} 元素</span>
     <span class="dev-stats-item">解析 {{ stats.parseMs.toFixed(2) }} ms</span>
     <span class="dev-stats-item">渲染 {{ stats.renderMs.toFixed(2) }} ms</span>
   </div>

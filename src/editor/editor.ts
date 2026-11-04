@@ -113,7 +113,8 @@ export class MarkdownEditor {
     // 性能数字：dev 的 HUD 会显示它，也是验证性能修复效果的直接手段
     const stats = {
       length: this.source.length,
-      blocks: tokens.length,
+      // 解析器把段落摊平成行内元素，所以这是「元素数」不是「段落数」
+      elements: tokens.length,
       parseMs,
       renderMs,
     }
