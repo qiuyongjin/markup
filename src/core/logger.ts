@@ -26,13 +26,13 @@ export const noopLogger: Logger = {
 export function consoleLogger(): Logger {
   return {
     debug(message: string, data?: unknown): void {
-      console.debug(`[mdoc] ${message}`, data ?? '')
+      console.debug(`[markup] ${message}`, data ?? '')
     },
     warn(message: string, data?: unknown): void {
-      console.warn(`[mdoc] ${message}`, data ?? '')
+      console.warn(`[markup] ${message}`, data ?? '')
     },
     error(message: string, data?: unknown): void {
-      console.error(`[mdoc] ${message}`, data ?? '')
+      console.error(`[markup] ${message}`, data ?? '')
     },
   }
 }

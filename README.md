@@ -1,4 +1,4 @@
-# mdoc
+# Markup
 
 一个极简风格的 Markdown 编辑器，基于 **Vite 8 + Vue 3 + TypeScript + Sass** 构建。
 
