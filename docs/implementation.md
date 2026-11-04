@@ -6,20 +6,66 @@
 
 ```text
 src/
-├── markdown/
-│   ├── parser.ts    # 源码 -> token 树
-│   ├── dom.ts       # token 树 <-> DOM 互转，光标位置在源码与 DOM 之间映射
-│   └── editor.ts    # 编辑器核心：拦截按键、修改源码、重新渲染、还原光标
+├── core/                 # 零依赖层：端口类型与日志端口
+│   ├── types.ts          # LinkCandidate / LinkProvider / OpResult / SuggestResult
+│   └── logger.ts         # 可注入的 logger，默认 no-op
+├── markdown/             # Markdown 语法（与框架无关）
+│   ├── parser.ts         # 源码 -> token 树
+│   └── dom.ts            # token 树 <-> DOM 互转，光标位置在源码与 DOM 之间映射
+├── editor/               # 编辑器层：编排 core + markdown
+│   ├── editor.ts         # 编辑器核心：拦截按键、修改源码、重新渲染、还原光标
+│   ├── types.ts          # 编辑器对外的契约（EditorOptions / SuggestionState）
+│   ├── text.ts           # 字素簇与单词边界（纯函数）
+│   └── history.ts        # 撤销 / 重做栈（纯数据）
 ├── pages/
-│   └── store.ts     # 页面仓库：候选窗口的来源，页面只存在内存里
+│   └── store.ts          # 页面仓库：候选窗口的来源，页面只存在内存里
 └── components/
     ├── MarkdownEditor.vue   # 挂载编辑器 + 渲染候选窗口
     ├── LinkSuggest.vue      # 候选窗口本身
-    └── PagePopup.vue        # 页面弹窗
+    ├── PagePopup.vue        # 页面弹窗
+    └── DevStats.vue         # dev-only 的性能 HUD
 ```
 
-`editor.ts` 不依赖任何框架，`MarkdownEditor.vue` 只负责把它挂到 `contenteditable` 元素上。
-页面仓库（`store.ts`）用了 Vue 的响应式，编辑器只通过一个接口（`LinkProvider`）跟它打交道。
+依赖方向是单向的：
+
+```text
+components/  ──►  editor/  ──►  markdown/
+     │             │
+     │             └──►  core/      （端口类型、日志端口）
+     │
+     └──►  pages/  ──►  core/
+```
+
+- `core/` 是零依赖层：不 import vue，不碰 `document` / `window`；
+- `editor/` 不知道页面存在，只通过 `LinkProvider` 端口取数据；
+- `pages/` 不 import `editor/`（页面领域的端口类型在 `core/types.ts`）；
+- 组件层不 import `pages/`：页面仓库的具体实现只在组合根出现，
+  组件只通过 `links` 属性拿到 `LinkProvider` 端口；
+- 组合根（`App.vue`）是唯一把页面仓库注入编辑器的地方。
+
+这几条规则由 `test/architecture.test.ts` 守着，改坏了测试会红。
+
+`editor/editor.ts` 不依赖任何框架，`MarkdownEditor.vue` 只负责把它挂到
+`contenteditable` 元素上。页面仓库（`store.ts`）用了 Vue 的响应式，
+编辑器只通过一个接口（`LinkProvider`）跟它打交道。
+
+### 端口与失败
+
+`LinkProvider` 的方法都返回**结果**而不是 `void`：
+
+- `suggest()` 返回 `{ candidates, error? }`：`error` 有值说明是「查询挂了」，
+  和「没有匹配页面」在界面上必须能区分开；
+- `create()` 返回 `{ ok: true }` 或 `{ ok: false, error }`：建页失败不再静默。
+
+### 可观察性
+
+- `core/logger.ts` 定义可注入的 `Logger`，默认 `noopLogger`（生产环境什么都不记）；
+- 开发环境由 `MarkdownEditor.vue` 注入 `consoleLogger()`；
+- 编辑器每次渲染后记一条 debug 日志（源码长度、块数、解析与渲染耗时）；
+  两处原本「静默吞异常」的空 `catch`（光标定位、选区定位）现在会留下 warn 日志
+  —— 保留「忽略这个异常」的语义，但不丢弃信息；
+- dev 下挂载性能 HUD（`DevStats.vue`），显示源码长度 / 块数 / 解析耗时 / 渲染耗时。
+  它用 `import.meta.env.DEV` 守卫 + 动态 import，生产构建里不进包。
 
 ## 解析器
 
@@ -67,6 +113,22 @@ type Token =
   | { kind: 'link'; name: string }
   | { kind: 'heading'; level: number; marker: string; children: Token[] }
 ```
+
+### 词法分析是线性的
+
+扫描区间时，「当前位置在不在某个区间里」这类查询用**游标**（`SpanCursor`）完成：
+区间按 `start` 升序且互不重叠，查询的偏移又是单调递增的，
+所以游标只向前推进就行，整体复杂度是「字符数 + 标记数」。
+
+早期版本用的是 `spans.find(...)`，每次都从数组头扫一遍，
+复杂度变成「字符数 × 标记数」——**长篇没有标题的散文**会撞上这个悬崖
+（50KB 一次解析要 90ms，100KB 要 400ms）。
+带标题的笔记不会触发：标题是块的天然切分点，一篇文档被切成很多小块，
+每块都很短。详见 `docs/architecture.md` 的 F5 与附录 B。
+
+`pnpm test:perf` 是独立的性能回归脚本（不放进单元测试，避免 CI 机器抖动导致误报），
+它只拦截「数量级退化」：最坏情况 52,000 字符必须 < 50ms，
+字符数 ×4 时耗时不能超过 ×8。
 
 ## 编辑模型
 
@@ -131,6 +193,12 @@ type Token =
 
 再走一遍 DOM，遇到带 `data-md` 的元素就用对应标记把内容包起来，于是 DOM 又变回源码。
 没有 `data-md` 的元素（例如浏览器自己插入的 `<b>`）会走兜底规则。
+
+兜底规则里有一条要特别注意：**`<em>` / `<i>` 会被还原成 `*…*`，而不是只留下文字**。
+早先的写法是 `return serializeChildren(el, false)`，标记被静默丢掉了——
+用户以为自己写的是斜体，回头一看标记没了，内容也变了。
+现在按 Markdown 的习惯还原成 `*…*`：解析器还不认斜体，
+至少标记还看得见，问题不会静默发生。
 
 ### 光标映射
 
@@ -270,11 +338,15 @@ hello\n<span data-md-tail>nihao</span>
 
 ```ts
 interface LinkProvider {
-  suggest(query: string): LinkCandidate[]
-  create(title: string): void
+  suggest(query: string): SuggestResult   // { candidates, error? }
+  create(title: string): OpResult         // { ok: true } | { ok: false, error }
   exists?(title: string): boolean
+  revision?: number                       // 页面数据变了就递增
 }
 ```
+
+`revision` 用来通知编辑器「该刷新断链的样子了」——
+比「页面数量变了」可靠（增删改不一定改数量）。
 
 ### 断链
 
@@ -287,13 +359,31 @@ interface LinkProvider {
 `src/pages/store.ts` 负责所有页面：查找、创建、更新、删除、按查询词搜索。
 页面只存在内存里——刷新页面就没了，正文本来也是不存的。
 
+仓库用工厂创建（`createPageStore()`），这样测试能拿到**隔离的实例**，
+不会互相污染；模块级保留一个默认实例，现有 import 方式继续可用。
+工厂的理由是**可测试**与**可复用**，不是为持久化铺路 —— 项目明确不做持久化。
+
+仓库同时保管「还没创建的页面」的正文（**草稿**）：
+
+- `saveDraft(title, content)`：写入草稿；
+- `draftOf(title)`：只读（弹窗回显用）；
+- `takeDraft(title)`：读即消费（取出即移除，创建页面时用）。
+
+草稿的持有者只有仓库一个，所以它**能被看见**：关掉弹窗再打开，
+之前写的内容还在，不会被下一次输入悄悄覆盖掉。
+
 ### 页面弹窗
 
 点击链接里的页面名，弹出页面弹窗（`PagePopup.vue`）：
 
 - 弹窗里的正文就是一个编辑器，可以直接写（打开时光标已经在里面）
 - 页面还不存在时，弹窗顶部提示「这个页面还不存在」并给一个创建按钮
-  （这时写的内容先存在草稿里，点了「创建页面」再写进页面，不会白写）
+  （这时写的内容先存在仓库的草稿里，点了「创建页面」再写进页面，不会白写；
+  关掉弹窗再打开，草稿会**回显**出来，不会被下一次输入覆盖）
+- 弹窗里的编辑器是「外部拥有内容」的：父组件在**真正替换内容**（切换页面）时
+  递增版本号，编辑器靠版本号判断这次变更是不是自己发起的，
+  而不是靠字符串相等——字符串比较一旦被中间层的一次规范化打破，
+  就会误判成「内容变了」，把撤销历史清零、光标弹到文末
 - 页面里的链接可以继续点开，弹窗用栈记录历史，顶部有「返回」
 - 关闭弹窗后焦点回到正文，光标还在原来的位置
 - `Esc` 先关候选窗口，再按一次才关弹窗（候选窗口会 `stopPropagation`，不让 `Esc` 冒到弹窗那里）
@@ -303,8 +393,9 @@ interface LinkProvider {
 - `Cmd/Ctrl + B` 给选区加粗（同时拦截浏览器默认插入 `<b>` 的行为）
 - `Cmd/Ctrl + A` 自己实现全选：内容只剩一个空行内元素时（例如源码只剩 `****`），
   浏览器的全选只会得到一个空选区，「全选 + 删除」就删不掉东西
-- `Cmd/Ctrl + Z` / `Cmd/Ctrl + Shift + Z` 撤销、重做，自己维护源码历史栈
-  （换文档时历史重新开始，否则撤销会把上一个页面的内容恢复出来）
+- `Cmd/Ctrl + Z` / `Cmd/Ctrl + Shift + Z` 撤销、重做，历史栈在 `editor/history.ts`
+  （换文档时历史重新开始，否则撤销会把上一个页面的内容恢复出来；
+  栈最多留 200 条，再多就把最老的丢掉——内存是「条数 × 文档长度」）
 - `Cmd/Ctrl + Enter` 打开光标所在的页面链接（只用键盘也能翻页面）
 - 粘贴只取纯文本，粘贴进来的内容同样走 Markdown 渲染
 - 光标超出视口时自动滚动（输入、退格、撤销都会跟随光标）
@@ -312,8 +403,10 @@ interface LinkProvider {
 ## 测试
 
 ```bash
-pnpm test          # 解析器单元测试，node 直接运行 .ts
+pnpm test          # node 侧单元测试（解析器、页面仓库、文本边界、历史栈、架构约束）
 pnpm test:browser  # 打包浏览器测试脚本
+pnpm test:perf     # 性能回归脚本（独立跑，宽松阈值）
+pnpm lint          # ESLint
 ```
 
 浏览器测试（`test/browser.test.ts`）在真实浏览器里跑，覆盖：
@@ -324,6 +417,11 @@ pnpm test:browser  # 打包浏览器测试脚本
 - 输入法组合输入（含回车之后在末尾组合输入、以及组合输入被取消）
 - 光标在嵌套结构（加粗里的代码、标题里）中的定位
 - 双向链接：候选窗口的弹出与关闭、查询词过滤、上下键切换、回车创建页面、点击链接
+- 「还没创建的页面」的完整流程（用真实的 App 组件跑）：输入 → 关掉 → 重开还能看到 →
+  继续输入 → 创建页面，内容完整
+- 源码往返的属性测试：随机生成 300 个样本 + 10 个边界样本，
+  断言「解析 → 渲染 → 序列化」回到原文（标记不会被悄悄吃掉）
+- 可观察性：查询失败与「没有匹配页面」能区分开、性能统计、日志端口
 
 测试页面会加载应用真实的样式表，所以排版上的问题也能测到：比如「回车之后组合输入的
 候选文字必须排在一行里，而不是一字一行」。

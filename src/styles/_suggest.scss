@@ -65,6 +65,11 @@
     font-size: 14px;
   }
 
+  // 查询失败：和「没有匹配页面」区分开
+  &-error {
+    color: var(--text);
+  }
+
   // 底部的一行快捷键提示
   &-hint {
     margin: 6px 0 0;

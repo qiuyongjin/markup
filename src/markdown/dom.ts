@@ -8,6 +8,9 @@
 
 import { BOLD_MARK, CODE_MARK, HEADING_MARK, LINK_CLOSE, LINK_OPEN, type Token } from './parser'
 
+/** 斜体标记：解析器还不支持，只在兜底还原时用 */
+const ITALIC_MARK = '*'
+
 const MD_ATTR = 'data-md'
 const MD_END_ATTR = 'data-md-end'
 const TAIL_ATTR = 'data-md-tail'
@@ -126,7 +129,10 @@ function serializeNode(node: Node): string {
   if (tag === 'strong' || tag === 'b') return BOLD_MARK + serializeChildren(el, false) + BOLD_MARK
   if (tag === 'code') return CODE_MARK + serializeChildren(el, false) + CODE_MARK
   if (tag === 'a') return LINK_OPEN + serializeChildren(el, false) + LINK_CLOSE
-  if (tag === 'em' || tag === 'i') return serializeChildren(el, false)
+  // 斜体：解析器还不支持，但**不能把标记悄悄丢掉** ——
+  // 丢掉的话，用户以为自己写的是斜体，回头一看标记没了，内容也变了。
+  // 这里按 Markdown 的习惯还原成 `*…*`：解析器不认它，至少标记还看得见。
+  if (tag === 'em' || tag === 'i') return ITALIC_MARK + serializeChildren(el, false) + ITALIC_MARK
   if (tag === 'div' || tag === 'p') return serializeChildren(el, false) + '\n'
   if (/^h[1-6]$/.test(tag)) {
     return HEADING_MARK.repeat(Number(tag[1])) + ' ' + serializeChildren(el, false)

@@ -139,6 +139,42 @@ function findCodeSpans(text: string): Span[] {
 }
 
 /**
+ * 区间数组的游标。
+ *
+ * 区间是按 `start` 升序、互不重叠的，所以查找可以只向前推进：
+ * 整体复杂度从「字符数 × 区间数」降到「字符数 + 区间数」。
+ *
+ * 用之前必须保证查询的偏移是**单调不减**的 —— 本文件的扫描循环都满足这一点。
+ */
+class SpanCursor {
+  private index = 0
+  private readonly spans: Span[]
+
+  constructor(spans: Span[]) {
+    this.spans = spans
+  }
+
+  /** 包含 offset 的区间（没有就返回 null） */
+  at(offset: number): Span | null {
+    // 结束在 offset 之前的区间不可能再包含后面的位置，直接跳过
+    while (this.index < this.spans.length && this.spans[this.index]!.end <= offset) this.index += 1
+    const span = this.spans[this.index]
+    if (!span) return null
+    return offset >= span.start && offset < span.end ? span : null
+  }
+
+  /** 区间 [start, end) 与任何一个区间重叠吗 */
+  overlaps(start: number, end: number): boolean {
+    // 结束在 start 之前的区间与 [start, end) 不重叠
+    while (this.index < this.spans.length && this.spans[this.index]!.end <= start) this.index += 1
+    const span = this.spans[this.index]
+    if (!span) return false
+    // 区间按 start 升序：这一项的 start 不小于 end，后面的也不会重叠
+    return span.start < end
+  }
+}
+
+/**
  * 找出成对的 `[[` 与 `]]`（跳过行内代码内部）。
  *
  * 页面名是纯文本，里面不能再出现方括号、反引号或换行，
@@ -147,11 +183,14 @@ function findCodeSpans(text: string): Span[] {
  */
 function findLinkSpans(text: string, codeSpans: Span[]): Span[] {
   const spans: Span[] = []
+  // 两个游标：主循环找「当前位置在不在代码里」，重叠检查找「候选链接压到代码了没」
+  const code = new SpanCursor(codeSpans)
+  const overlap = new SpanCursor(codeSpans)
   let index = 0
   while (index < text.length) {
-    const code = codeSpans.find((span) => index >= span.start && index < span.end)
-    if (code) {
-      index = code.end
+    const inCode = code.at(index)
+    if (inCode) {
+      index = inCode.end
       continue
     }
     if (text.startsWith(LINK_OPEN, index)) {
@@ -159,9 +198,7 @@ function findLinkSpans(text: string, codeSpans: Span[]): Span[] {
       const close = text.indexOf(LINK_CLOSE, contentStart)
       if (close !== -1) {
         const content = text.slice(contentStart, close)
-        const overlapsCode = codeSpans.some(
-          (span) => span.start < close && span.end > contentStart,
-        )
+        const overlapsCode = overlap.overlaps(contentStart, close)
         if (content && !/[[\]`]/.test(content) && !content.includes('\n') && !overlapsCode) {
           spans.push({ start: contentStart, end: close })
           index = close + LINK_CLOSE.length
@@ -180,16 +217,18 @@ function findLinkSpans(text: string, codeSpans: Span[]): Span[] {
  */
 function findBoldSpans(text: string, codeSpans: Span[], linkSpans: Span[]): Span[] {
   const marks: number[] = []
+  const code = new SpanCursor(codeSpans)
+  const link = new SpanCursor(linkSpans)
   let index = 0
   while (index < text.length) {
-    const code = codeSpans.find((span) => index >= span.start && index < span.end)
-    if (code) {
-      index = code.end
+    const inCode = code.at(index)
+    if (inCode) {
+      index = inCode.end
       continue
     }
-    const link = linkSpans.find((span) => index >= span.start && index < span.end)
-    if (link) {
-      index = link.end
+    const inLink = link.at(index)
+    if (inLink) {
+      index = inLink.end
       continue
     }
     if (text.startsWith(BOLD_MARK, index)) {

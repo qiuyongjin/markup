@@ -4,11 +4,18 @@
 import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { compile } from 'sass'
+import vue from '@vitejs/plugin-vue'
 import { build } from 'vite'
 
 await build({
   configFile: false,
   logLevel: 'warn',
+  // 测试里也要挂载真实的 Vue 组件（App.vue），所以要带 vue 插件
+  plugins: [vue()],
+  // 库模式默认不替换 process.env.NODE_ENV，浏览器里会直接报错
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
   build: {
     lib: {
       entry: resolve(process.cwd(), 'test/browser.test.ts'),

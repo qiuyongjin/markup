@@ -1,0 +1,20 @@
+// 开发环境的性能 HUD（只在 dev 下出现）。
+
+@use 'tokens' as t;
+
+.dev-stats {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  display: flex;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px var(--shadow);
+  color: var(--muted);
+  font: 12px/1.4 t.$font-mono;
+  pointer-events: none;
+}

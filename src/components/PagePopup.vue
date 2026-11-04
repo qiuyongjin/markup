@@ -6,6 +6,7 @@
  * 页面里再点一个链接，可以继续跳到别的页面。
  */
 import { onBeforeUnmount, onMounted } from 'vue'
+import type { LinkProvider } from '../core/types'
 import MarkdownEditor from './MarkdownEditor.vue'
 
 defineProps<{
@@ -17,6 +18,10 @@ defineProps<{
   missing?: boolean
   /** 能不能返回上一层 */
   canGoBack?: boolean
+  /** 双向链接的候选来源 */
+  links?: LinkProvider
+  /** 外部内容的版本号：切换页面时递增 */
+  externalVersion?: number
 }>()
 
 const emit = defineEmits<{
@@ -59,6 +64,9 @@ onBeforeUnmount(() => {
       <div class="popup-body">
         <MarkdownEditor
           :model-value="content"
+          :links="links"
+          :external-version="externalVersion"
+          ownership="controlled"
           compact
           @update:model-value="emit('update:content', $event)"
           @open-page="emit('navigate', $event)"

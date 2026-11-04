@@ -2,10 +2,11 @@
 /**
  * 候选窗口：输入 `[[` 时出现在光标下方，列出已有的页面。
  *
- * 没有候选页面时，窗口里给一句提示，告诉用户可以输入内容来创建页面。
+ * 没有候选页面时，窗口里给一句提示，告诉用户可以输入内容来创建页面；
+ * 查询失败时显示的是另一句 —— 「没有匹配页面」和「查询挂了」必须能区分开。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { SuggestionState } from '../markdown/editor'
+import type { SuggestionState } from '../editor/types'
 
 const props = defineProps<{ state: SuggestionState | null }>()
 const emit = defineEmits<{
@@ -103,6 +104,9 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
         <span v-if="item.preview" class="link-suggest-preview">{{ item.preview }}</span>
       </li>
     </ul>
+    <p v-else-if="state.error" class="link-suggest-empty link-suggest-error">
+      查询失败：{{ state.error }}
+    </p>
     <p v-else class="link-suggest-empty">输入内容并按回车，即可创建页面</p>
 
     <p v-if="state.candidates.length" class="link-suggest-hint">↑↓ 选择 · Enter 确认 · Esc 关闭</p>

@@ -9,78 +9,36 @@
  * 这样可以保证源码永远和用户输入一致，不会被浏览器改写 DOM 的行为（空白折叠、
  * 行内元素合并等）污染。只有输入法组合输入交给浏览器处理，结束后再从 DOM 回收。
  */
-import { CODE_MARK, LINK_CLOSE, LINK_OPEN, parseMarkdown } from './parser'
-import { createTailElement, positionForSourceOffset, renderTokens, serializeNodes, sourceOffsetAt } from './dom'
-
-interface HistoryEntry {
-  source: string
-  caret: number
-}
+import { CODE_MARK, LINK_CLOSE, LINK_OPEN, parseMarkdown } from '../markdown/parser'
+import {
+  createTailElement,
+  positionForSourceOffset,
+  renderTokens,
+  serializeNodes,
+  sourceOffsetAt,
+} from '../markdown/dom'
+import type { LinkCandidate } from '../core/types'
+import { noopLogger, type Logger } from '../core/logger'
+import { History, type HistoryEntry } from './history'
+import { nextGraphemeEnd, nextWordEnd, previousGraphemeStart, previousWordStart } from './text'
+import type { EditorOptions, SuggestionState } from './types'
 
 interface SourceSelection {
   start: number
   end: number
 }
 
-/** 候选窗口里的一项 */
-export interface LinkCandidate {
-  /** 页面标题（链接的目标） */
-  title: string
-  /** 页面内容摘要（可以没有） */
-  preview?: string
-  /** 页面是否已经存在；false 表示这是「新建页面」这一项 */
-  exists: boolean
-}
-
-/** 候选窗口的数据来源 */
-export interface LinkProvider {
-  /** 根据查询词返回候选页面 */
-  suggest(query: string): LinkCandidate[]
-  /** 创建一个页面 */
-  create(title: string): void
-  /** 页面是否已经存在（用来把断链标出来） */
-  exists?(title: string): boolean
-}
-
-/** 候选窗口的状态 */
-export interface SuggestionState {
-  /** 候选窗口是否展开 */
-  active: boolean
-  /** `[[` 的源码偏移 */
-  start: number
-  /** 光标的源码偏移 */
-  caret: number
-  /** 已经输入的查询词 */
-  query: string
-  /** 候选项 */
-  candidates: LinkCandidate[]
-  /** 高亮的候选项下标，-1 表示没有高亮 */
-  selected: number
-  /** 光标的视口位置（候选窗口定位用） */
-  rect: { left: number; top: number; bottom: number } | null
-}
-
-export interface EditorOptions {
-  /** 双向链接的候选来源；不提供就没有候选窗口 */
-  links?: LinkProvider
-  /** 候选窗口状态变化 */
-  onSuggestion?: (state: SuggestionState | null) => void
-  /** 点击了页面链接 */
-  onOpenPage?: (title: string) => void
-  /** 源码变化 */
-  onChange?: (source: string) => void
-}
-
 export class MarkdownEditor {
   private readonly root: HTMLElement
   private readonly options: EditorOptions
+  private readonly logger: Logger
   private source = ''
   private caretOffset = 0
-  private history: HistoryEntry[] = [{ source: '', caret: 0 }]
-  private historyIndex = 0
+  private readonly history = new History()
+  /** 外部内容的版本号（'controlled' 模式下用来判断变更来源） */
+  private externalVersion: number
   private composing = false
   private listeners: Array<[string, EventListener]> = []
-  private segmenter: Intl.Segmenter | null = null
   private suggestionState: SuggestionState | null = null
   /** 被 Esc 关掉的触发位置：同一个 `[[` 不会再自动弹出窗口 */
   private dismissedTrigger: number | null = null
@@ -88,6 +46,8 @@ export class MarkdownEditor {
   constructor(root: HTMLElement, options: EditorOptions = {}) {
     this.root = root
     this.options = options
+    this.logger = options.logger ?? noopLogger
+    this.externalVersion = options.externalVersion ?? 0
     this.render()
     this.attach()
   }
@@ -133,8 +93,13 @@ export class MarkdownEditor {
 
   /** 重新渲染整个编辑区 */
   render(): void {
+    const parseStart = performance.now()
+    const tokens = parseMarkdown(this.source)
+    const parseMs = performance.now() - parseStart
+
+    const renderStart = performance.now()
     const fragment = document.createDocumentFragment()
-    renderTokens(parseMarkdown(this.source), fragment)
+    renderTokens(tokens, fragment)
 
     // 结尾是换行时补一个占位元素：撑出最后一行，光标才能停在这一行上
     if (this.source.endsWith('\n')) {
@@ -143,6 +108,17 @@ export class MarkdownEditor {
 
     this.root.replaceChildren(fragment)
     this.markMissingLinks()
+    const renderMs = performance.now() - renderStart
+
+    // 性能数字：dev 的 HUD 会显示它，也是验证性能修复效果的直接手段
+    const stats = {
+      length: this.source.length,
+      blocks: tokens.length,
+      parseMs,
+      renderMs,
+    }
+    this.logger.debug('渲染完成', stats)
+    this.options.onStats?.(stats)
   }
 
   /**
@@ -182,12 +158,33 @@ export class MarkdownEditor {
     this.source = source
     // 换文档就是换了一篇内容，历史记录重新开始：
     // 否则撤销会把上一页的内容恢复出来（弹窗里翻页时尤其明显）。
-    this.history = [{ source, caret }]
-    this.historyIndex = 0
+    this.history.reset(source, caret)
     this.render()
     this.writeCaretOffset(Math.min(caret, source.length))
     this.options.onChange?.(this.source)
     this.updateSuggestion()
+  }
+
+  /**
+   * 外部内容变了：按「内容由谁拥有」的契约决定要不要换掉编辑区里的内容。
+   *
+   * - `'owned'`（默认）：内容和自己的一样就说明是自己改的，忽略。
+   * - `'controlled'`：内容由外部拥有。父组件**主动替换**内容时版本号会变，
+   *   这时才换；只是回显我刚上报的内容（版本号没变）就不动 ——
+   *   这一下就避免了「内容被清空 + 撤销历史归零 + 光标弹到文末」。
+   */
+  applyExternalSource(source: string, version?: number): void {
+    const controlled = this.options.ownership === 'controlled' && version !== undefined
+    if (!controlled) {
+      // 编辑器拥有内容：内容一样就说明是自己改的，不用动
+      if (source === this.source) return
+      this.setSource(source)
+      return
+    }
+
+    if (version === this.externalVersion) return
+    this.externalVersion = version
+    this.setSource(source)
   }
 
   // ---------------------------------------------------------------- 光标
@@ -211,7 +208,9 @@ export class MarkdownEditor {
     const range = document.createRange()
     try {
       range.setStart(position.node, position.offset)
-    } catch {
+    } catch (error) {
+      // 光标定位失败：保留「忽略这个异常」的语义，但不能什么都不说
+      this.logger.warn('光标定位失败', { offset, error })
       return
     }
     range.collapse(true)
@@ -232,7 +231,9 @@ export class MarkdownEditor {
     try {
       range.setStart(from.node, from.offset)
       range.setEnd(to.node, to.offset)
-    } catch {
+    } catch (error) {
+      // 同上：忽略异常，但留下痕迹
+      this.logger.warn('选区定位失败', { start, end, error })
       return
     }
 
@@ -285,13 +286,6 @@ export class MarkdownEditor {
 
   // ---------------------------------------------------------------- 历史
 
-  private pushHistory(next: string, caret: number): void {
-    const entries = this.history.slice(0, this.historyIndex + 1)
-    entries.push({ source: next, caret })
-    this.history = entries
-    this.historyIndex = entries.length - 1
-  }
-
   private applyHistory(entry: HistoryEntry): void {
     this.source = entry.source
     this.render()
@@ -301,15 +295,15 @@ export class MarkdownEditor {
   }
 
   undo(): void {
-    if (this.historyIndex <= 0) return
-    this.historyIndex -= 1
-    this.applyHistory(this.history[this.historyIndex]!)
+    const entry = this.history.undo()
+    if (!entry) return
+    this.applyHistory(entry)
   }
 
   redo(): void {
-    if (this.historyIndex >= this.history.length - 1) return
-    this.historyIndex += 1
-    this.applyHistory(this.history[this.historyIndex]!)
+    const entry = this.history.redo()
+    if (!entry) return
+    this.applyHistory(entry)
   }
 
   // ---------------------------------------------------------------- 源码编辑
@@ -319,7 +313,7 @@ export class MarkdownEditor {
     const next = this.source.slice(0, start) + text + this.source.slice(end)
 
     this.source = next
-    this.pushHistory(next, start + text.length)
+    this.history.push(next, start + text.length)
     this.render()
     this.writeSelection(start + text.length, start + text.length)
     this.options.onChange?.(this.source)
@@ -339,7 +333,7 @@ export class MarkdownEditor {
 
     const next = this.source.slice(0, start) + mark + selected + mark + this.source.slice(end)
     this.source = next
-    this.pushHistory(next, start + mark.length + selected.length)
+    this.history.push(next, start + mark.length + selected.length)
     this.render()
     this.writeSelection(start + mark.length, start + mark.length + selected.length)
     this.options.onChange?.(this.source)
@@ -355,7 +349,7 @@ export class MarkdownEditor {
       this.replaceRange('', start, end)
       return
     }
-    this.replaceRange('', this.previousGraphemeStart(start), start)
+    this.replaceRange('', previousGraphemeStart(this.source, start), start)
   }
 
   /** 向后删除一个字符 */
@@ -365,7 +359,7 @@ export class MarkdownEditor {
       this.replaceRange('', start, end)
       return
     }
-    this.replaceRange('', end, this.nextGraphemeEnd(end))
+    this.replaceRange('', end, nextGraphemeEnd(this.source, end))
   }
 
   /** 向前删除一个单词 */
@@ -375,7 +369,7 @@ export class MarkdownEditor {
       this.replaceRange('', start, end)
       return
     }
-    this.replaceRange('', this.previousWordStart(start), start)
+    this.replaceRange('', previousWordStart(this.source, start), start)
   }
 
   /** 向后删除一个单词 */
@@ -385,57 +379,7 @@ export class MarkdownEditor {
       this.replaceRange('', start, end)
       return
     }
-    this.replaceRange('', end, this.nextWordEnd(end))
-  }
-
-  private getSegmenter(): Intl.Segmenter | null {
-    if (!this.segmenter && typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
-      this.segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-    }
-    return this.segmenter
-  }
-
-  private previousGraphemeStart(offset: number): number {
-    const before = this.source.slice(0, offset)
-    if (!before) return 0
-
-    const code = before.codePointAt(before.length - 1)!
-    if (code < 0x80) return before.length - 1
-
-    const segmenter = this.getSegmenter()
-    if (!segmenter) return before.length - 1
-
-    let start = 0
-    for (const segment of segmenter.segment(before)) start = segment.index
-    return start
-  }
-
-  private nextGraphemeEnd(offset: number): number {
-    const after = this.source.slice(offset)
-    if (!after) return this.source.length
-
-    const code = after.codePointAt(0)!
-    if (code < 0x80) return offset + 1
-
-    const segmenter = this.getSegmenter()
-    if (!segmenter) return offset + 1
-
-    for (const segment of segmenter.segment(after)) return offset + segment.segment.length
-    return offset + 1
-  }
-
-  private previousWordStart(offset: number): number {
-    let index = offset
-    while (index > 0 && /\s/.test(this.source[index - 1]!)) index -= 1
-    while (index > 0 && !/\s/.test(this.source[index - 1]!)) index -= 1
-    return index
-  }
-
-  private nextWordEnd(offset: number): number {
-    let index = offset
-    while (index < this.source.length && !/\s/.test(this.source[index]!)) index += 1
-    while (index < this.source.length && /\s/.test(this.source[index]!)) index += 1
-    return index
+    this.replaceRange('', end, nextWordEnd(this.source, end))
   }
 
   // ---------------------------------------------------------------- 双向链接
@@ -471,7 +415,7 @@ export class MarkdownEditor {
     }
 
     const query = this.source.slice(trigger + LINK_OPEN.length, caret)
-    const candidates = this.buildCandidates(query)
+    const { candidates, error } = this.buildCandidates(query)
 
     this.setSuggestion({
       active: true,
@@ -482,6 +426,8 @@ export class MarkdownEditor {
       // 窗口开着就高亮第一项，回车选中的就是看到的那一项
       selected: candidates.length > 0 ? 0 : -1,
       rect: this.caretRect(),
+      // 查询失败和「没有匹配页面」要能区分开
+      error,
     })
   }
 
@@ -506,12 +452,23 @@ export class MarkdownEditor {
     return null
   }
 
-  /** 组装候选列表：同名页面优先，「新建页面」排在最前面 */
-  private buildCandidates(query: string): LinkCandidate[] {
+  /**
+   * 组装候选列表：同名页面优先，「新建页面」排在最前面。
+   *
+   * 查询失败时返回空列表并带上原因 ——
+   * 「查询挂了」和「没有匹配页面」在界面上必须能区分开。
+   */
+  private buildCandidates(query: string): { candidates: LinkCandidate[]; error?: string } {
     const provider = this.options.links
-    if (!provider) return []
+    if (!provider) return { candidates: [] }
 
-    const matched = provider.suggest(query)
+    const result = provider.suggest(query)
+    if (result.error) {
+      this.logger.error('候选查询失败', { query, error: result.error })
+      return { candidates: [], error: result.error }
+    }
+
+    const matched = result.candidates
     const title = query.trim()
     const exact = title
       ? matched.find((item) => item.title.toLowerCase() === title.toLowerCase())
@@ -526,7 +483,7 @@ export class MarkdownEditor {
     for (const item of matched) {
       if (item !== exact) candidates.push(item)
     }
-    return candidates
+    return { candidates }
   }
 
   /** 候选窗口的锚点：光标在视口中的位置 */
@@ -635,7 +592,13 @@ export class MarkdownEditor {
     const title = candidate.title.trim()
     if (!title) return false
 
-    if (!candidate.exists) this.options.links?.create(title)
+    if (!candidate.exists) {
+      // 建页失败要留下痕迹，不能静默吞掉
+      const result = this.options.links?.create(title)
+      if (result && !result.ok) {
+        this.logger.error('创建页面失败', { title, error: result.error })
+      }
+    }
 
     this.replaceRange(`${LINK_OPEN}${title}${LINK_CLOSE}`, state.start, state.caret)
     return true
@@ -695,7 +658,7 @@ export class MarkdownEditor {
 
     if (next !== this.source) {
       this.source = next
-      this.pushHistory(next, offset)
+      this.history.push(next, offset)
       this.options.onChange?.(this.source)
     }
 
@@ -802,6 +765,7 @@ export class MarkdownEditor {
       const title = link.getAttribute('data-page') ?? ''
       if (title) this.options.onOpenPage?.(title)
     } else if (key === 'i') {
+      // 斜体不做：但要拦住浏览器自己插入 <i> 标签（那会破坏源码与 DOM 的一致性）
       event.preventDefault()
     }
   }
